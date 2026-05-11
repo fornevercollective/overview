@@ -45,6 +45,7 @@ import {
 } from './paper-templates'
 import ResearchMarkdownPreview from './ResearchMarkdownPreview'
 import ThemeSplitPreview from './ThemeSplitPreview'
+import { parseYouTubeVideoId, youtubeNoCookieEmbedUrl } from '../util/youtube'
 import './research.css'
 
 type ResearchPageTab = {
@@ -219,6 +220,19 @@ function formatSessionElapsed(ms: number): string {
   const sec = s % 60
   if (h > 0) return `${pad2(h)}:${pad2(m)}:${pad2(sec)}`
   return `${pad2(m)}:${pad2(sec)}`
+}
+
+/** Human-readable duration for screen readers (aria-label). */
+function formatElapsedForAria(ms: number): string {
+  const s = Math.floor(ms / 1000)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  const parts: string[] = []
+  if (h > 0) parts.push(`${h} hour${h === 1 ? '' : 's'}`)
+  if (m > 0) parts.push(`${m} minute${m === 1 ? '' : 's'}`)
+  if (sec > 0 || parts.length === 0) parts.push(`${sec} second${sec === 1 ? '' : 's'}`)
+  return parts.join(', ')
 }
 
 function roughTokenEstimate(text: string): number {
@@ -742,6 +756,9 @@ export default function ResearchOverview({
   const [drawerMediaTab, setDrawerMediaTab] = useState<'images' | 'stream' | 'chat'>('images')
   const [drawerImgUrlField, setDrawerImgUrlField] = useState('')
   const [drawerImgPreviewSrc, setDrawerImgPreviewSrc] = useState<string | null>(null)
+  const [drawerStreamUrlField, setDrawerStreamUrlField] = useState('')
+  const [drawerStreamVideoId, setDrawerStreamVideoId] = useState<string | null>(null)
+  const [drawerStreamError, setDrawerStreamError] = useState<string | null>(null)
   const [drawerChatMessages, setDrawerChatMessages] = useState<{ id: string; text: string; at: string }[]>([])
   const [drawerChatInput, setDrawerChatInput] = useState('')
 
@@ -770,6 +787,7 @@ export default function ResearchOverview({
   const aiKeyId = useId()
   const drawerNotesId = useId()
   const drawerImgUrlInputId = useId()
+  const drawerStreamUrlInputId = useId()
   const drawerChatFieldId = useId()
   const drawerAttachFilterId = useId()
   const menuFabRef = useRef<HTMLButtonElement>(null)
@@ -843,18 +861,35 @@ export default function ResearchOverview({
     return countWordsAndSpaces(parts.join('\n'))
   }, [sections, shellContext, drawerQuickNotes, workspaceAssistantMessages])
 
-  const footerStatusText = useMemo(() => {
+  const footerStatusBar = useMemo(() => {
     const elapsedMs = nowTick - sessionStartedAt
     const clock = formatWallClock(new Date(nowTick))
     const elapsed = formatSessionElapsed(elapsedMs)
+    const elapsedAria = formatElapsedForAria(elapsedMs)
     const { words, spaces } = footerDocStats
     const aiNever = lastAiUsage === null
     const promptT = lastAiUsage?.promptTokens
     const compT = lastAiUsage?.completionTokens
-    const usageCol = aiNever ? '—' : String(compT ?? 0)
-    const contextCol = aiNever ? '—' : String(promptT ?? 0)
-    const tokensCol = aiNever ? '—' : String((promptT ?? 0) + (compT ?? 0))
-    return `${clock} : ${elapsed} _ ${words} : ${spaces} _ ${usageCol} | ${contextCol} | ${tokensCol}`
+    const totalT = (promptT ?? 0) + (compT ?? 0)
+    const outStr = aiNever ? '—' : String(compT ?? 0)
+    const inStr = aiNever ? '—' : String(promptT ?? 0)
+    const sumStr = aiNever ? '—' : String(totalT)
+    const ariaLabel = aiNever
+      ? `Workspace status. Current local time ${clock}. Session elapsed ${elapsedAria}. Document word count ${words}, space count ${spaces}. No AI token usage recorded for this session.`
+      : `Workspace status. Current local time ${clock}. Session elapsed ${elapsedAria}. Document word count ${words}, space count ${spaces}. AI tokens: ${compT ?? 0} completion output, ${promptT ?? 0} prompt input, ${totalT} total.`
+    const barTitle =
+      'now: local time · run: session elapsed · w/sp: word & space counts · out|in|Σ: AI completion, prompt input, total tokens'
+    return {
+      clock,
+      elapsed,
+      words,
+      spaces,
+      outStr,
+      inStr,
+      sumStr,
+      ariaLabel,
+      barTitle,
+    }
   }, [nowTick, footerDocStats, lastAiUsage, sessionStartedAt])
 
   const sectionsRef = useRef(sections)
@@ -1512,6 +1547,23 @@ export default function ResearchOverview({
     const u = drawerImgUrlField.trim()
     setDrawerImgPreviewSrc(u || null)
   }, [drawerImgUrlField, revokeDrawerImgObjectUrl])
+
+  const applyDrawerStreamFromUrl = useCallback(() => {
+    const u = drawerStreamUrlField.trim()
+    if (!u) {
+      setDrawerStreamVideoId(null)
+      setDrawerStreamError(null)
+      return
+    }
+    const id = parseYouTubeVideoId(u)
+    if (!id) {
+      setDrawerStreamVideoId(null)
+      setDrawerStreamError('Not a recognized YouTube URL or video id.')
+      return
+    }
+    setDrawerStreamError(null)
+    setDrawerStreamVideoId(id)
+  }, [drawerStreamUrlField])
 
   const onDrawerImageFilePick = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
@@ -3035,8 +3087,42 @@ export default function ResearchOverview({
                   ) : null}
                   {drawerMediaTab === 'stream' ? (
                     <div className="ro-drawer-subpanel" role="tabpanel">
-                      <p className="muted">Stream URL (stub)</p>
-                      <div className="ro-drawer-video-placeholder" aria-hidden="true" />
+                      <div className="ro-drawer-field">
+                        <label className="ro-drawer-label" htmlFor={drawerStreamUrlInputId}>
+                          YouTube URL
+                        </label>
+                        <div className="ro-drawer-inline">
+                          <input
+                            id={drawerStreamUrlInputId}
+                            type="url"
+                            className="ro-drawer-input"
+                            placeholder="https://www.youtube.com/watch?v=…"
+                            value={drawerStreamUrlField}
+                            onChange={(e) => setDrawerStreamUrlField(e.target.value)}
+                          />
+                          <button type="button" className="ro-btn ro-btn-ghost" onClick={applyDrawerStreamFromUrl}>
+                            Load
+                          </button>
+                        </div>
+                      </div>
+                      {drawerStreamError ? (
+                        <p className="ro-drawer-stream-error" role="alert">
+                          {drawerStreamError}
+                        </p>
+                      ) : null}
+                      <div className="ro-drawer-video-frame">
+                        {drawerStreamVideoId ? (
+                          <iframe
+                            className="ro-drawer-video-iframe"
+                            src={youtubeNoCookieEmbedUrl(drawerStreamVideoId)}
+                            title="YouTube video preview"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
+                          />
+                        ) : (
+                          <p className="ro-drawer-empty muted">No video loaded.</p>
+                        )}
+                      </div>
                     </div>
                   ) : null}
                   {drawerMediaTab === 'chat' ? (
@@ -3191,8 +3277,65 @@ export default function ResearchOverview({
 
       {onOpenSummary || onOpenPresentation || onOpenSketch ? (
         <footer className="ro-app-footer">
-          <div className="ro-app-footer-status" aria-live="polite" title={footerStatusText}>
-            {footerStatusText}
+          <div
+            className="ro-app-footer-status"
+            aria-live="polite"
+            aria-label={footerStatusBar.ariaLabel}
+            title={footerStatusBar.barTitle}
+          >
+            <span className="ro-app-footer-status-seg" title="Current local time">
+              <span className="ro-app-footer-status-key">now</span> {footerStatusBar.clock}
+            </span>
+            <span className="ro-app-footer-status-dot" aria-hidden>
+              {' '}
+              ·{' '}
+            </span>
+            <span className="ro-app-footer-status-seg" title="Time since this workspace session started">
+              <span className="ro-app-footer-status-key">run</span> {footerStatusBar.elapsed}
+            </span>
+            <span className="ro-app-footer-status-dot" aria-hidden>
+              {' '}
+              ·{' '}
+            </span>
+            <span className="ro-app-footer-status-seg" title="Word count in outline, shell context, notes, and assistant messages">
+              <abbr className="ro-app-footer-status-key" title="Word count">
+                w
+              </abbr>{' '}
+              {footerStatusBar.words}
+            </span>
+            <span className="ro-app-footer-status-dot" aria-hidden>
+              {' '}
+              ·{' '}
+            </span>
+            <span className="ro-app-footer-status-seg" title="Inter-word space count (same text sources as word count)">
+              <abbr className="ro-app-footer-status-key" title="Space count">
+                sp
+              </abbr>{' '}
+              {footerStatusBar.spaces}
+            </span>
+            <span className="ro-app-footer-status-dot" aria-hidden>
+              {' '}
+              ·{' '}
+            </span>
+            <span
+              className="ro-app-footer-status-seg"
+              title="Last AI call: completion (output) tokens | prompt (input) tokens | total"
+            >
+              <span className="ro-app-footer-status-key">out</span> {footerStatusBar.outStr}
+              <span className="ro-app-footer-status-ai-sep" aria-hidden>
+                {' '}
+                |{' '}
+              </span>
+              <span className="ro-app-footer-status-key">in</span> {footerStatusBar.inStr}
+              <span className="ro-app-footer-status-ai-sep" aria-hidden>
+                {' '}
+                |{' '}
+              </span>
+              <abbr className="ro-app-footer-status-key" title="Total AI tokens (prompt + completion)">
+                Σ
+              </abbr>{' '}
+              {footerStatusBar.sumStr}
+            </span>
           </div>
           <div className="ro-app-footer-links">
             {onOpenSummary ? (
