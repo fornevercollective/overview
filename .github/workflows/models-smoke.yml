@@ -1,0 +1,78 @@
+name: Models smoke
+
+# Manual-only smoke test against GitHub Models. Never runs on PR/push.
+# Requires the repo to have access to GitHub Models and the workflow to be
+# granted `models: read`. See docs/agent/05-github-models.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model id (e.g. openai/gpt-4o-mini, meta/llama-3.1-70b-instruct)'
+        required: true
+        default: 'openai/gpt-4o-mini'
+      prompt:
+        description: 'User prompt'
+        required: true
+        default: 'Give a 3-bullet outline for "vector search basics".'
+
+permissions:
+  contents: read
+  models: read
+
+jobs:
+  smoke:
+    name: Call GitHub Models
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo inputs (no secrets)
+        run: |
+          echo "Model:  ${{ inputs.model }}"
+          echo "Prompt: ${{ inputs.prompt }}"
+
+      - name: POST chat/completions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODEL: ${{ inputs.model }}
+          PROMPT: ${{ inputs.prompt }}
+          ENDPOINT: ${{ vars.GITHUB_MODELS_ENDPOINT || 'https://models.github.ai/inference' }}
+        run: |
+          set -u
+          if [ -z "${GITHUB_TOKEN:-}" ]; then
+            echo "::warning::GITHUB_TOKEN is empty; skipping live call."
+            echo "Enable GitHub Models for this repo and ensure 'models: read' permission is granted."
+            exit 0
+          fi
+
+          payload=$(jq -n --arg model "$MODEL" --arg prompt "$PROMPT" '{
+            model: $model,
+            temperature: 0.4,
+            max_tokens: 512,
+            messages: [
+              { role: "system", content: "You are a concise research outline assistant." },
+              { role: "user",   content: $prompt }
+            ]
+          }')
+
+          http_code=$(curl -sS -o response.json -w "%{http_code}" \
+            -X POST "$ENDPOINT/chat/completions" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data "$payload" || echo "000")
+
+          echo "HTTP $http_code"
+          if [ "$http_code" = "200" ]; then
+            jq -r '.choices[0].message.content // .' response.json
+          elif [ "$http_code" = "429" ]; then
+            echo "::warning::Rate limited (429). GitHub Models is prototyping-tier; retry later."
+            jq . response.json || cat response.json
+          elif [ "$http_code" = "404" ] || [ "$http_code" = "403" ]; then
+            echo "::warning::Models API not available for this token/repo (HTTP $http_code)."
+            echo "Confirm the repo has access to GitHub Models and that the 'models:' permission is enabled in workflow_dispatch policy."
+            jq . response.json || cat response.json
+          else
+            echo "::error::Unexpected status $http_code"
+            jq . response.json || cat response.json
+            exit 1
+          fi

@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/fornevercollective/overview/schemas/overview-workspace-snapshot.schema.json",
+  "title": "OverviewWorkspaceSnapshot",
+  "description": "Hand-derived from src/research/workspace-snapshot.ts at WORKSPACE_SNAPSHOT_VERSION='2'. Bump version + regenerate when the TS shape changes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "exportedAt", "shellContext", "activeTabId", "tabs"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Snapshot interchange version. Current: '2'."
+    },
+    "exportedAt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601 timestamp set by serializeWorkspace()."
+    },
+    "shellContext": {
+      "type": "string",
+      "description": "Global scratchpad string from the workspace shell (may be empty)."
+    },
+    "activeTabId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must equal one of tabs[].id."
+    },
+    "tabs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/WorkspaceTab" },
+      "description": "Ordered tab snapshots. ids must be unique."
+    },
+    "drawerQuickNotes": {
+      "type": "string",
+      "description": "Drawer-only scratchpad, distinct from shellContext."
+    },
+    "aiConfig": { "$ref": "#/definitions/AiConfig" },
+    "attachments": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Attachment" },
+      "description": "Metadata-only attachment list. Exports never embed file bytes."
+    }
+  },
+  "definitions": {
+    "WorkspaceTab": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sections", "researchPrompt", "ingestQuery", "lastSeedPrompt", "todos"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "sections": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Section" }
+        },
+        "researchPrompt": { "type": "string" },
+        "ingestQuery": { "type": "string" },
+        "ingestKind": {
+          "type": "string",
+          "enum": ["transcript", "images", "notes"]
+        },
+        "lastSeedPrompt": { "type": "string" },
+        "paperGenreMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "empirical_imrad",
+            "review",
+            "theoretical",
+            "case_study",
+            "general"
+          ],
+          "description": "Paper scaffold genre for the tab; auto picks from prompt + workspace notes heuristics."
+        },
+        "todos": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Todo" }
+        }
+      }
+    },
+    "Section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "body", "children"],
+      "description": "Recursive outline node. Parser caps depth at 64 to bound stack usage.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Section" }
+        }
+      }
+    },
+    "Todo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "done", "error"]
+        },
+        "source": {
+          "type": "string",
+          "description": "Which AI action created this row: seed | expand | refine."
+        }
+      }
+    },
+    "AiConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Persisted shell settings for an OpenAI-compatible endpoint. NEVER includes secrets; API keys live in sessionStorage only.",
+      "properties": {
+        "baseUrl": { "type": "string" },
+        "modelName": { "type": "string" }
+      }
+    },
+    "Attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "size", "type"],
+      "description": "Drawer attachment metadata. dataUrl is only present on re-imports of small files (<= 512 KiB).",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "size": { "type": "number" },
+        "type": { "type": "string" },
+        "dataUrl": {
+          "type": "string",
+          "description": "Optional base64 data URL; capped at 524288 chars on import."
+        }
+      }
+    }
+  }
+}

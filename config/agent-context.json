@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "name": "overview",
+  "version": 1,
+  "description": "Machine-readable manifest for AI agents, MCP servers, and RAG indexers working on this repo. Lists doc paths, scripts, entrypoints, and integration hooks. No secrets.",
+  "documentation": {
+    "primary": "AGENTS.md",
+    "numbered": [
+      "docs/agent/01-architecture.md",
+      "docs/agent/02-schemas.md",
+      "docs/agent/03-github-actions.md",
+      "docs/agent/04-theming.md",
+      "docs/agent/05-github-models.md"
+    ],
+    "human_readme": "README.md"
+  },
+  "package_manager": {
+    "tool": "npm",
+    "lockfile": "package-lock.json",
+    "node": ">=20"
+  },
+  "scripts": {
+    "install": "npm ci",
+    "dev": "npm run dev",
+    "lint": "npm run lint",
+    "build": "npm run build",
+    "preview": "npm run preview"
+  },
+  "entrypoints": {
+    "html": "index.html",
+    "js": "src/main.tsx",
+    "app": "src/App.tsx",
+    "workspace_shell": "src/research/ResearchOverview.tsx",
+    "summary_view": "src/Summary.tsx",
+    "presentation_view": "src/Presentation.tsx"
+  },
+  "schemas": {
+    "workspace_snapshot": {
+      "ts_source": "src/research/workspace-snapshot.ts",
+      "json_schema": "schemas/overview-workspace-snapshot.schema.json",
+      "current_version": "2"
+    },
+    "research_types": "src/research/research-types.ts",
+    "youtube_ingest_types": "src/research/youtube-ingest-types.ts"
+  },
+  "hooks": {
+    "ai_iterate": {
+      "file": "src/App.tsx",
+      "symbol": "onAiIterate",
+      "request_types": ["expand", "refine", "seed"],
+      "request_type_def": "src/research/research-types.ts:AiIterateRequest"
+    },
+    "share_hash": {
+      "encoder": "src/research/workspace-share-link.ts:encodeWorkspaceShare",
+      "decoder": "src/research/workspace-share-link.ts:decodeWorkspaceSharePayload",
+      "hash_prefix": "#workspace-share=",
+      "max_url_chars": 8000
+    },
+    "dev_api": {
+      "global": "window.__OVERVIEW_WORKSPACE__",
+      "type": "src/research/workspace-snapshot.ts:OverviewWorkspaceDevApi"
+    }
+  },
+  "ci": {
+    "ci_workflow": ".github/workflows/ci.yml",
+    "deploy_workflow": ".github/workflows/deploy-pages.yml",
+    "models_smoke_workflow": ".github/workflows/models-smoke.yml"
+  },
+  "github_models": {
+    "endpoint": "https://models.github.ai/inference",
+    "auth": "Authorization: Bearer $GITHUB_TOKEN (server-side only)",
+    "permission": "models: read",
+    "client_side_safe": false,
+    "example_script": "scripts/gh-models-example.sh",
+    "docs": "docs/agent/05-github-models.md"
+  },
+  "env_vars": {
+    "build_time": ["VITE_BASE_PATH", "VITE_DEFAULT_MODEL"],
+    "ci_only": ["GITHUB_TOKEN", "GITHUB_MODELS_ENDPOINT"],
+    "scripts_only": ["GH_MODELS_MODEL"]
+  },
+  "do_not_commit": [".env", ".env.*", "*.local", "node_modules/", "dist/"],
+  "license": "see LICENSE if present"
+}
