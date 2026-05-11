@@ -312,3 +312,10 @@
 .pr-dir-list li {
   margin: 2px 0;
 }
+
+/* Same iOS focus-zoom floor as research.css (see index.css :root at max-width 1024px). */
+@media (max-width: 1024px) {
+  .pr-root :is(.pr-textarea, .pr-input, select) {
+    font-size: max(16px, 1rem);
+  }
+}

@@ -2667,3 +2667,18 @@ main.ro-main > article.ro-section.ro-depth-0 {
   font-size: 0.65rem;
   line-height: 1.45;
 }
+
+/*
+ * Narrow viewports: iOS Safari zooms the viewport when a focused text control's
+ * computed font-size is below ~16px, which then breaks layout until the next
+ * full reflow. Match index.css :root (16px) at max-width: 1024px - floor text
+ * fields at 16px without touching heading-sized .ro-title-input (font: inherit).
+ */
+@media (max-width: 1024px) {
+  .ro-shell textarea,
+  .ro-shell select,
+  .ro-shell
+    input:not(.ro-title-input):not([type='checkbox']):not([type='radio']):not([type='range']):not([type='hidden']):not([type='button']):not([type='submit']):not([type='reset']):not([type='color']):not([type='file']) {
+    font-size: max(16px, 1rem);
+  }
+}
