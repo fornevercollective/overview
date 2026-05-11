@@ -612,6 +612,7 @@ function formatBytes(n: number): string {
 const LS_MENU_OPEN = 'overview-menu-open'
 const LS_DRAWER_DETAILS = 'overview-drawer-details'
 const LS_WORKSPACE_NOTES_EXPANDED = 'overview-workspace-notes-expanded'
+const LS_CAPTURE_GALLERY_OPEN = 'overview-capture-gallery-open'
 
 const OVERVIEW_DRAWER_DETAIL_KEYS = [
   'paperGenre',
@@ -752,6 +753,7 @@ export default function ResearchOverview({
   const [captureBusy, setCaptureBusy] = useState(false)
   const [captureStatus, setCaptureStatus] = useState<{ text: string; isError: boolean } | null>(null)
   const [captureGallery, setCaptureGallery] = useState<CaptureGalleryItem[]>(() => readCaptureGalleryFromSession())
+  const [captureGalleryOpen, setCaptureGalleryOpen] = useState(() => readLsBool(LS_CAPTURE_GALLERY_OPEN))
   const [snapshotDownloadPng, setSnapshotDownloadPng] = useState(true)
   const [capturePreview, setCapturePreview] = useState<CaptureGalleryItem | null>(null)
   const [heroBadges, setHeroBadges] = useState<HeroBadge[]>([])
@@ -1134,6 +1136,10 @@ export default function ResearchOverview({
   useEffect(() => {
     writeLsBool(LS_WORKSPACE_NOTES_EXPANDED, workspaceNotesPinnedOpen)
   }, [workspaceNotesPinnedOpen])
+
+  useEffect(() => {
+    writeLsBool(LS_CAPTURE_GALLERY_OPEN, captureGalleryOpen)
+  }, [captureGalleryOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -2315,6 +2321,57 @@ export default function ResearchOverview({
           </div>
         </section>
       </div>
+
+      {captureGallery.length > 0 ? (
+        <details
+          className="ro-capture-gallery-details"
+          open={captureGalleryOpen}
+          onToggle={(e) => setCaptureGalleryOpen(e.currentTarget.open)}
+        >
+          <summary className="ro-capture-gallery-summary">
+            <span className="ro-capture-gallery-title">Capture gallery</span>
+            <button
+              type="button"
+              className="ro-btn ro-btn-ghost ro-capture-gallery-clear"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                clearCaptureGallery()
+              }}
+            >
+              Clear all
+            </button>
+          </summary>
+          <section className="ro-capture-gallery" aria-label="Session capture gallery">
+            <p className="ro-capture-gallery-hint muted">
+              Session only — scroll horizontally. Hold Shift and use the mouse wheel to scroll sideways.
+            </p>
+            <div ref={captureGalleryStripRef} className="ro-capture-gallery-strip">
+              {captureGallery.map((item) => (
+                <div key={item.id} className="ro-capture-gallery-thumb-wrap">
+                  <button
+                    type="button"
+                    className="ro-capture-gallery-thumb"
+                    onClick={() => openCapturePreview(item)}
+                    aria-label={`Open preview: ${item.label}`}
+                  >
+                    <img src={item.dataUrl} width={120} alt="" decoding="async" />
+                  </button>
+                  <button
+                    type="button"
+                    className="ro-capture-gallery-remove"
+                    aria-label={`Remove capture: ${item.label}`}
+                    onClick={() => removeCaptureGalleryItem(item.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        </details>
+      ) : null}
+
       <div className="ro-tab-bar" role="tablist" aria-label="Research pages">
         <div ref={tabScrollRef} className="ro-tab-scroll">
           {tabs.map((t) => (
@@ -2559,45 +2616,6 @@ export default function ResearchOverview({
           ))}
         </main>
       </div>
-
-      {captureGallery.length > 0 ? (
-        <section className="ro-capture-gallery" aria-label="Session capture gallery">
-          <div className="ro-capture-gallery-head">
-            <h2 className="ro-capture-gallery-title">Capture gallery</h2>
-            <button type="button" className="ro-btn ro-btn-ghost ro-capture-gallery-clear" onClick={clearCaptureGallery}>
-              Clear all
-            </button>
-          </div>
-          <p className="ro-capture-gallery-hint muted">
-            Session only — scroll horizontally. Hold Shift and use the mouse wheel to scroll sideways.
-          </p>
-          <div
-            ref={captureGalleryStripRef}
-            className="ro-capture-gallery-strip"
-          >
-            {captureGallery.map((item) => (
-              <div key={item.id} className="ro-capture-gallery-thumb-wrap">
-                <button
-                  type="button"
-                  className="ro-capture-gallery-thumb"
-                  onClick={() => openCapturePreview(item)}
-                  aria-label={`Open preview: ${item.label}`}
-                >
-                  <img src={item.dataUrl} width={120} alt="" decoding="async" />
-                </button>
-                <button
-                  type="button"
-                  className="ro-capture-gallery-remove"
-                  aria-label={`Remove capture: ${item.label}`}
-                  onClick={() => removeCaptureGalleryItem(item.id)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       <button
         ref={menuFabRef}
