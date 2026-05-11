@@ -2,7 +2,8 @@ name: Deploy Pages
 
 on:
   push:
-    branches: [main]
+    # Deploy preview/prod builds from either integration branch (main) or active dev branch (rescue).
+    branches: [main, rescue]
   workflow_dispatch:
 
 permissions:
