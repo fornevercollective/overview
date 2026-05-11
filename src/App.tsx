@@ -1,14 +1,16 @@
-import { useCallback, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useRef, useState } from 'react'
 import Presentation from './Presentation'
 import ResearchOverview, { type ResearchOverviewProps } from './research/ResearchOverview'
 import type { OverviewWorkspaceSnapshot } from './research/workspace-snapshot'
 import Summary from './Summary'
 
+const Sketch = lazy(() => import('./Sketch'))
+
 /** Set to your backend when ready; `undefined` keeps the built-in offline stub (expand, refine, seed). */
 const onAiIterate: ResearchOverviewProps['onAiIterate'] = undefined
 
 export default function App() {
-  const [page, setPage] = useState<'app' | 'summary' | 'presentation'>('app')
+  const [page, setPage] = useState<'app' | 'summary' | 'presentation' | 'sketch'>('app')
   const lastWorkspaceSnapshotRef = useRef<OverviewWorkspaceSnapshot | null>(null)
 
   const onWorkspaceChange = useCallback((snap: OverviewWorkspaceSnapshot) => {
@@ -17,6 +19,7 @@ export default function App() {
 
   const openSummary = useCallback(() => setPage('summary'), [])
   const openPresentation = useCallback(() => setPage('presentation'), [])
+  const openSketch = useCallback(() => setPage('sketch'), [])
   const backToWorkspace = useCallback(() => setPage('app'), [])
   const exportFromSummary = useCallback(() => {
     window.location.hash = '#workspace-export'
@@ -38,11 +41,20 @@ export default function App() {
     return <Presentation onBack={backToWorkspace} />
   }
 
+  if (page === 'sketch') {
+    return (
+      <Suspense fallback={<div style={{ padding: 24 }}>Loading sketch workspace…</div>}>
+        <Sketch onBack={backToWorkspace} />
+      </Suspense>
+    )
+  }
+
   return (
     <ResearchOverview
       onAiIterate={onAiIterate}
       onOpenSummary={openSummary}
       onOpenPresentation={openPresentation}
+      onOpenSketch={openSketch}
       onWorkspaceChange={onWorkspaceChange}
     />
   )

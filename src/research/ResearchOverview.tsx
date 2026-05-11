@@ -45,7 +45,6 @@ import {
 } from './paper-templates'
 import ResearchMarkdownPreview from './ResearchMarkdownPreview'
 import ThemeSplitPreview from './ThemeSplitPreview'
-import { ExcalidrawLazyPanel } from '../presentation/ExcalidrawLazy'
 import './research.css'
 
 type ResearchPageTab = {
@@ -513,6 +512,8 @@ export type ResearchOverviewProps = {
   onOpenSummary?: () => void
   /** Footer link to the Presentation reading room (optional). */
   onOpenPresentation?: () => void
+  /** Footer + drawer entry to the full-page Sketch (Excalidraw) workspace (optional). */
+  onOpenSketch?: () => void
 } & ResearchOverviewCorpusHandlers
 
 const SEED_DEBOUNCE_MS = 900
@@ -697,6 +698,7 @@ export default function ResearchOverview({
   onWorkspaceChange,
   onOpenSummary,
   onOpenPresentation,
+  onOpenSketch,
   onTranscriptIngest,
   onCorpusSearch,
 }: ResearchOverviewProps) {
@@ -753,8 +755,6 @@ export default function ResearchOverview({
   const [snapshotDownloadPng, setSnapshotDownloadPng] = useState(true)
   const [capturePreview, setCapturePreview] = useState<CaptureGalleryItem | null>(null)
   const [heroBadges, setHeroBadges] = useState<HeroBadge[]>([])
-  /** Sketch (Excalidraw) is gated behind a manual toggle so the chunk only loads on demand. */
-  const [sketchEnabled, setSketchEnabled] = useState(false)
   const themeSplitRef = useRef<HTMLDivElement | null>(null)
   const capturePreviewDialogRef = useRef<HTMLDialogElement | null>(null)
   const captureGalleryStripRef = useRef<HTMLDivElement | null>(null)
@@ -3126,23 +3126,14 @@ export default function ResearchOverview({
                 <summary className="ro-drawer-section-title">Sketch</summary>
                 <div className="ro-drawer-section-body">
                   <p className="ro-drawer-sketch-hint muted">
-                    Mounts <code className="ro-drawer-code">@excalidraw/excalidraw</code> on demand
-                    (separate chunk). Same lazy panel used in the Presentation page.
+                    Full canvas lives on its own page so Excalidraw is not cramped inside this drawer.
                   </p>
-                  {sketchEnabled ? (
-                    <div className="ro-drawer-sketch-frame" aria-label="Sketch pad">
-                      <ExcalidrawLazyPanel
-                        fallback={<div className="ro-drawer-sketch-fallback">Loading sketch pad…</div>}
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="ro-btn ro-btn-accent"
-                      onClick={() => setSketchEnabled(true)}
-                    >
-                      Open sketch pad
+                  {onOpenSketch ? (
+                    <button type="button" className="ro-btn ro-btn-accent" onClick={onOpenSketch}>
+                      Open full sketch workspace
                     </button>
+                  ) : (
+                    <p className="ro-drawer-sketch-hint muted">Sketch navigation is not wired on this host.</p>
                   )}
                 </div>
               </details>
@@ -3180,7 +3171,7 @@ export default function ResearchOverview({
         </div>
       </dialog>
 
-      {onOpenSummary || onOpenPresentation ? (
+      {onOpenSummary || onOpenPresentation || onOpenSketch ? (
         <footer className="ro-app-footer">
           <div className="ro-app-footer-status" aria-live="polite" title={footerStatusText}>
             {footerStatusText}
@@ -3191,7 +3182,7 @@ export default function ResearchOverview({
                 Summary
               </button>
             ) : null}
-            {onOpenSummary && onOpenPresentation ? (
+            {onOpenSummary && (onOpenPresentation || onOpenSketch) ? (
               <span className="ro-app-footer-sep" aria-hidden>
                 ·
               </span>
@@ -3199,6 +3190,16 @@ export default function ResearchOverview({
             {onOpenPresentation ? (
               <button type="button" className="ro-app-footer-link" onClick={onOpenPresentation}>
                 Presentation
+              </button>
+            ) : null}
+            {onOpenPresentation && onOpenSketch ? (
+              <span className="ro-app-footer-sep" aria-hidden>
+                ·
+              </span>
+            ) : null}
+            {onOpenSketch ? (
+              <button type="button" className="ro-app-footer-link" onClick={onOpenSketch}>
+                Sketch
               </button>
             ) : null}
           </div>

@@ -2591,32 +2591,7 @@ main.ro-main > article.ro-section.ro-depth-0 {
   background: var(--bg);
 }
 
-/* Sketch (Excalidraw) drawer section — keep board height bounded inside the drawer */
-.ro-drawer-sketch-frame {
-  position: relative;
-  width: 100%;
-  height: 280px;
-  min-height: 220px;
-  border: 1px solid var(--ro-btn-rule);
-  background: var(--ro-panel-solid);
-  overflow: hidden;
-}
-
-.ro-drawer-sketch-frame .pr-excal-wrap {
-  width: 100%;
-  height: 100%;
-}
-
-.ro-drawer-sketch-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  font-family: var(--ro-font-mono);
-  font-size: 0.7rem;
-  color: var(--ro-muted);
-}
-
+/* Sketch drawer section — opens full-page workspace (see Sketch.tsx) */
 .ro-drawer-sketch-hint {
   margin: 0 0 8px;
   font-size: 0.65rem;
