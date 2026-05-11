@@ -10,23 +10,25 @@ const Sketch = lazy(() => import('./Sketch'))
 const DRAWER_AI_SESSION_KEY = 'overview-drawer-ai-config'
 const DEFAULT_FREE_MODEL_BASE_URL = 'https://models.github.ai/inference'
 const DEFAULT_FREE_MODEL_NAME = (import.meta.env.VITE_DEFAULT_MODEL as string | undefined)?.trim() || 'openai/gpt-4o-mini'
+const DEFAULT_AI_TEMPERATURE = 0.4
+const DEFAULT_AI_MAX_TOKENS = 1024
 
-function sectionId(): string {
+function generateSectionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `sec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function sectionFromUnknown(value: unknown): ResearchSection | null {
+function parseResearchSection(value: unknown): ResearchSection | null {
   if (!value || typeof value !== 'object') return null
   const obj = value as Record<string, unknown>
   const title = typeof obj.title === 'string' ? obj.title : ''
   const body = typeof obj.body === 'string' ? obj.body : ''
   const rawChildren = Array.isArray(obj.children) ? obj.children : []
   return {
-    id: typeof obj.id === 'string' && obj.id.trim() ? obj.id : sectionId(),
+    id: typeof obj.id === 'string' && obj.id.trim() ? obj.id : generateSectionId(),
     title: title.trim() || 'Untitled section',
     body,
-    children: rawChildren.map(sectionFromUnknown).filter((x): x is ResearchSection => Boolean(x)),
+    children: rawChildren.map(parseResearchSection).filter((x): x is ResearchSection => Boolean(x)),
   }
 }
 
@@ -53,7 +55,7 @@ function tryParseModelResult(raw: string): AiIterateResult {
   try {
     const parsed = JSON.parse(text.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>
     const children = Array.isArray(parsed.children)
-      ? parsed.children.map(sectionFromUnknown).filter((x): x is ResearchSection => Boolean(x))
+      ? parsed.children.map(parseResearchSection).filter((x): x is ResearchSection => Boolean(x))
       : undefined
     return {
       ...(typeof parsed.title === 'string' ? { title: parsed.title } : {}),
@@ -61,6 +63,7 @@ function tryParseModelResult(raw: string): AiIterateResult {
       ...(children ? { children } : {}),
     }
   } catch {
+    console.warn('Could not parse model response as JSON; using text body fallback.')
     return { body: text }
   }
 }
@@ -104,21 +107,23 @@ async function liveAiIterate(req: AiIterateRequest): Promise<AiIterateResult | n
     },
     body: JSON.stringify({
       model: modelName,
-      temperature: 0.4,
-      max_tokens: 1024,
+      temperature: DEFAULT_AI_TEMPERATURE,
+      max_tokens: DEFAULT_AI_MAX_TOKENS,
       messages: buildMessages(req),
     }),
   })
   const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
   if (!response.ok) {
     const message = typeof payload.error === 'object' ? (payload.error as { message?: string }).message : undefined
-    throw new Error(message || `AI request failed (${response.status})`)
+    throw new Error(
+      message || `AI request failed for ${req.kind} via ${endpointBase}/chat/completions (${response.status} ${response.statusText})`,
+    )
   }
   const choices = Array.isArray(payload.choices) ? payload.choices : []
   const first = choices[0] as { message?: { content?: string } } | undefined
   const content = first?.message?.content
   if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('AI response was empty.')
+    throw new Error(`AI response was empty for model "${modelName}" (${req.kind}).`)
   }
   const usage = typeof payload.usage === 'object' && payload.usage
     ? (payload.usage as { prompt_tokens?: unknown; completion_tokens?: unknown })
@@ -143,16 +148,16 @@ function fallbackAiIterate(req: AiIterateRequest): AiIterateResult {
       title,
       body: 'Add an API key in AI linking to use live model output.',
       children: [
-        { id: sectionId(), title: 'Background', body: '', children: [] },
-        { id: sectionId(), title: 'Key questions', body: '', children: [] },
-        { id: sectionId(), title: 'Evidence', body: '', children: [] },
-        { id: sectionId(), title: 'Draft findings', body: '', children: [] },
+        { id: generateSectionId(), title: 'Background', body: '', children: [] },
+        { id: generateSectionId(), title: 'Key questions', body: '', children: [] },
+        { id: generateSectionId(), title: 'Evidence', body: '', children: [] },
+        { id: generateSectionId(), title: 'Draft findings', body: '', children: [] },
       ],
     }
   }
   if (req.kind === 'expand') {
     return {
-      children: [{ id: sectionId(), title: `Sub-point: ${req.section.title}`, body: '', children: [] }],
+      children: [{ id: generateSectionId(), title: `Sub-point: ${req.section.title}`, body: '', children: [] }],
     }
   }
   return { body: req.section.body.trim() ? `${req.section.body}\n\nRefined draft.` : 'Refined draft.' }
