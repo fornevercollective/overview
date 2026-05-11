@@ -12,6 +12,7 @@ const DEFAULT_FREE_MODEL_BASE_URL = 'https://models.github.ai/inference'
 const DEFAULT_FREE_MODEL_NAME = (import.meta.env.VITE_DEFAULT_MODEL as string | undefined)?.trim() || 'openai/gpt-4o-mini'
 const DEFAULT_AI_TEMPERATURE = 0.4
 const DEFAULT_AI_MAX_TOKENS = 1024
+const SEED_CHILD_GUIDANCE = '4-8'
 
 function generateSectionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -49,11 +50,8 @@ function readDrawerAiConfig(): { baseUrl: string; modelName: string; apiKey: str
 
 function tryParseModelResult(raw: string): AiIterateResult {
   const text = raw.trim()
-  const firstBrace = text.indexOf('{')
-  const lastBrace = text.lastIndexOf('}')
-  if (firstBrace < 0 || lastBrace <= firstBrace) return { body: text }
   try {
-    const parsed = JSON.parse(text.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>
+    const parsed = JSON.parse(text) as Record<string, unknown>
     const children = Array.isArray(parsed.children)
       ? parsed.children.map(parseResearchSection).filter((x): x is ResearchSection => Boolean(x))
       : undefined
@@ -63,9 +61,86 @@ function tryParseModelResult(raw: string): AiIterateResult {
       ...(children ? { children } : {}),
     }
   } catch {
-    console.warn('Could not parse model response as JSON; using text body fallback.')
-    return { body: text }
+    const firstBrace = text.indexOf('{')
+    const lastBrace = text.lastIndexOf('}')
+    if (firstBrace < 0 || lastBrace <= firstBrace) return { body: text }
+    try {
+      const parsed = JSON.parse(text.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>
+      const children = Array.isArray(parsed.children)
+        ? parsed.children.map(parseResearchSection).filter((x): x is ResearchSection => Boolean(x))
+        : undefined
+      return {
+        ...(typeof parsed.title === 'string' ? { title: parsed.title } : {}),
+        ...(typeof parsed.body === 'string' ? { body: parsed.body } : {}),
+        ...(children ? { children } : {}),
+      }
+    } catch {
+      console.warn('Could not parse model response as JSON; using text body fallback.')
+      return { body: text }
+    }
   }
+}
+
+function parseUsageTokens(payload: Record<string, unknown>): AiIterateResult['usage'] | undefined {
+  if (typeof payload.usage !== 'object' || !payload.usage) return undefined
+  const usage = payload.usage as { prompt_tokens?: unknown; completion_tokens?: unknown }
+  if (typeof usage.prompt_tokens !== 'number' && typeof usage.completion_tokens !== 'number') return undefined
+  return {
+    promptTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
+    completionTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : undefined,
+  }
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    return parsed as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function errorMessageFromResponse(
+  req: AiIterateRequest,
+  endpointBase: string,
+  response: Response,
+  payload: Record<string, unknown> | null,
+  responseText: string,
+): string {
+  const fromJson =
+    payload && typeof payload.error === 'object' && payload.error
+      ? (payload.error as { message?: unknown }).message
+      : undefined
+  if (typeof fromJson === 'string' && fromJson.trim()) return fromJson
+  const bodyText = responseText.trim()
+  const bodySuffix = bodyText ? ` Body: ${bodyText.slice(0, 240)}` : ''
+  return `AI request failed for ${req.kind} via ${endpointBase}/chat/completions (${response.status} ${response.statusText}).${bodySuffix}`
+}
+
+function aiResultWithUsage(payload: Record<string, unknown>, rawContent: string): AiIterateResult {
+  const usage = parseUsageTokens(payload)
+  return {
+    ...tryParseModelResult(rawContent),
+    ...(usage ? { usage } : {}),
+  }
+}
+
+function seedPromptText(req: Extract<AiIterateRequest, { kind: 'seed' }>): string {
+  return (
+    `Seed an outline for: ${req.prompt}\nWorkspace context:\n${req.workspaceContext ?? ''}\n` +
+    `Return ${SEED_CHILD_GUIDANCE} useful top-level children.`
+  )
+}
+
+function nonSeedPromptText(req: Exclude<AiIterateRequest, { kind: 'seed' }>): string {
+  return (
+    `${req.kind === 'expand' ? 'Expand' : 'Refine'} this section.\n` +
+    `Path: ${req.pathTitles.join(' / ')}\n` +
+    `Title: ${req.section.title}\n` +
+    `Body:\n${req.section.body}\n` +
+    `Workspace context:\n${req.workspaceContext ?? ''}`
+  )
 }
 
 function buildMessages(req: AiIterateRequest): Array<{ role: 'system' | 'user'; content: string }> {
@@ -74,23 +149,12 @@ function buildMessages(req: AiIterateRequest): Array<{ role: 'system' | 'user'; 
   if (req.kind === 'seed') {
     return [
       { role: 'system', content: system },
-      {
-        role: 'user',
-        content: `Seed an outline for: ${req.prompt}\nWorkspace context:\n${req.workspaceContext ?? ''}\nReturn 4-8 useful top-level children.`,
-      },
+      { role: 'user', content: seedPromptText(req) },
     ]
   }
   return [
     { role: 'system', content: system },
-    {
-      role: 'user',
-      content:
-        `${req.kind === 'expand' ? 'Expand' : 'Refine'} this section.\n` +
-        `Path: ${req.pathTitles.join(' / ')}\n` +
-        `Title: ${req.section.title}\n` +
-        `Body:\n${req.section.body}\n` +
-        `Workspace context:\n${req.workspaceContext ?? ''}`,
-    },
+    { role: 'user', content: nonSeedPromptText(req) },
   ]
 }
 
@@ -112,33 +176,19 @@ async function liveAiIterate(req: AiIterateRequest): Promise<AiIterateResult | n
       messages: buildMessages(req),
     }),
   })
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
+  const responseText = await response.text()
+  const payload = parseJsonObject(responseText)
   if (!response.ok) {
-    const message = typeof payload.error === 'object' ? (payload.error as { message?: string }).message : undefined
-    throw new Error(
-      message || `AI request failed for ${req.kind} via ${endpointBase}/chat/completions (${response.status} ${response.statusText})`,
-    )
+    throw new Error(errorMessageFromResponse(req, endpointBase, response, payload, responseText))
   }
+  if (!payload) throw new Error(`AI response was not valid JSON for model "${modelName}" (${req.kind}).`)
   const choices = Array.isArray(payload.choices) ? payload.choices : []
   const first = choices[0] as { message?: { content?: string } } | undefined
   const content = first?.message?.content
   if (typeof content !== 'string' || !content.trim()) {
     throw new Error(`AI response was empty for model "${modelName}" (${req.kind}).`)
   }
-  const usage = typeof payload.usage === 'object' && payload.usage
-    ? (payload.usage as { prompt_tokens?: unknown; completion_tokens?: unknown })
-    : undefined
-  return {
-    ...tryParseModelResult(content),
-    ...(usage
-      ? {
-          usage: {
-            promptTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
-            completionTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : undefined,
-          },
-        }
-      : {}),
-  }
+  return aiResultWithUsage(payload, content)
 }
 
 function fallbackAiIterate(req: AiIterateRequest): AiIterateResult {
