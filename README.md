@@ -1,3 +1,5 @@
+<img width="1284" height="977" alt="Screenshot 2026-05-10 at 11 05 03 PM" src="https://github.com/user-attachments/assets/5778786d-4cc7-4555-9c6c-11a4b19081b0" />
+
 # Overview
 
 Single-page **React + TypeScript + Vite** workspace for AI-assisted research notes: an outlinable editor, printable **Summary**, and a **Presentation** “reading room” with slide splits and optional whiteboard. State stays in the browser; interchange is **JSON snapshots** and compressed **`#workspace-share=`** URL fragments.
