@@ -13,10 +13,12 @@ const DEFAULT_FREE_MODEL_NAME = (import.meta.env.VITE_DEFAULT_MODEL as string | 
 const DEFAULT_AI_TEMPERATURE = 0.4
 const DEFAULT_AI_MAX_TOKENS = 1024
 const SEED_CHILD_GUIDANCE = '4-8'
+let sectionIdCounter = 0
 
 function generateSectionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  return `sec-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  sectionIdCounter += 1
+  return `sec-${Date.now()}-${sectionIdCounter.toString(36)}`
 }
 
 function parseResearchSection(value: unknown): ResearchSection | null {
@@ -75,7 +77,8 @@ function tryParseModelResult(raw: string): AiIterateResult {
         ...(children ? { children } : {}),
       }
     } catch {
-      console.warn('Could not parse model response as JSON; using text body fallback.')
+      const sample = text.slice(0, 120).replace(/\s+/g, ' ')
+      console.warn(`Could not parse model JSON (full and extracted object parse failed). Fallback body used. Sample: ${sample}`)
       return { body: text }
     }
   }
@@ -145,7 +148,7 @@ function nonSeedPromptText(req: Exclude<AiIterateRequest, { kind: 'seed' }>): st
 
 function buildMessages(req: AiIterateRequest): Array<{ role: 'system' | 'user'; content: string }> {
   const system =
-    'You are a research-outline assistant. Return compact JSON only: {"title"?:string,"body"?:string,"children"?:ResearchSection[]}. Each child must include title/body and optional nested children.'
+    'You are a research-outline assistant. Return compact JSON only: {"title"?:string,"body"?:string,"children"?:Section[]}. Each child section must have title, body, and optional nested children with the same structure.'
   if (req.kind === 'seed') {
     return [
       { role: 'system', content: system },
@@ -163,19 +166,27 @@ async function liveAiIterate(req: AiIterateRequest): Promise<AiIterateResult | n
   if (!cfg.apiKey) return null
   const endpointBase = (cfg.baseUrl || DEFAULT_FREE_MODEL_BASE_URL).replace(/\/+$/, '')
   const modelName = cfg.modelName || DEFAULT_FREE_MODEL_NAME
-  const response = await fetch(`${endpointBase}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${cfg.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: modelName,
-      temperature: DEFAULT_AI_TEMPERATURE,
-      max_tokens: DEFAULT_AI_MAX_TOKENS,
-      messages: buildMessages(req),
-    }),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${endpointBase}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelName,
+        temperature: DEFAULT_AI_TEMPERATURE,
+        max_tokens: DEFAULT_AI_MAX_TOKENS,
+        messages: buildMessages(req),
+      }),
+    })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown network error'
+    throw new Error(`AI request network failure for ${req.kind} via ${endpointBase}/chat/completions: ${msg}`, {
+      cause: error,
+    })
+  }
   const responseText = await response.text()
   const payload = parseJsonObject(responseText)
   if (!response.ok) {
@@ -196,7 +207,7 @@ function fallbackAiIterate(req: AiIterateRequest): AiIterateResult {
     const title = req.prompt.trim() || 'Research focus'
     return {
       title,
-      body: 'Add an API key in AI linking to use live model output.',
+      body: 'Add an API key in AI settings to use live model output.',
       children: [
         { id: generateSectionId(), title: 'Background', body: '', children: [] },
         { id: generateSectionId(), title: 'Key questions', body: '', children: [] },
