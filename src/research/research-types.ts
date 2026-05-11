@@ -1,3 +1,4 @@
+
 export type ResearchSection = {
   id: string
   title: string
@@ -25,6 +26,11 @@ export type AiIterateRequestSeed = {
   pathTitles: string[]
   /** Global scratchpad from the shell (ResearchOverview); optional for backends. */
   workspaceContext?: string
+  /**
+   * Resolved paper scaffold genre from the workspace UI (Auto uses heuristics).
+   * Same literals as `PaperGenre` in `./paper-templates`. Hosts may ignore; the offline stub uses it when the root outline is empty.
+   */
+  paperGenre?: 'empirical_imrad' | 'review' | 'theoretical' | 'case_study' | 'general'
 }
 
 export type AiIterateRequest = AiIterateRequestExpandRefine | AiIterateRequestSeed
@@ -35,6 +41,8 @@ export type AiIterateResult = {
   body?: string
   /** Appended after existing children when kind is `expand`. Replaces root children when kind is `seed`. */
   children?: ResearchSection[]
+  /** Optional token accounting from the host model — footer shows stubs until provided. */
+  usage?: { promptTokens?: number; completionTokens?: number }
 }
 
 export type ResearchTodoStatus = 'pending' | 'in_progress' | 'done' | 'error'
@@ -58,6 +66,17 @@ export type TranscriptIngestRequest = {
   kind?: IngestKind
 }
 
+/** Session-only workspace-notes assistant (`ResearchOverview` strip under shell context). */
+export type WorkspaceAssistantRequest = {
+  prompt: string
+  /** Current workspace notes (`shellContext`) when the user sends a message. */
+  notes: string
+  /** Caret range in `notes` when the user invoked the assistant from a selection (e.g. Ctrl+Enter). */
+  selection?: { start: number; end: number }
+}
+
+export type WorkspaceAssistantHandler = (req: WorkspaceAssistantRequest) => Promise<string>
+
 /** Optional wiring from `App` for transcript ingest and corpus search from the hero field. */
 export type ResearchOverviewCorpusHandlers = {
   onTranscriptIngest?: (req: TranscriptIngestRequest) => void
@@ -70,6 +89,20 @@ export type {
   SnapshotAiConfig,
   SnapshotFileAttachment,
 } from './workspace-snapshot'
+export type {
+  PaperGenre,
+  PaperGenreMode,
+  PaperSectionTemplate,
+} from './paper-templates'
+export {
+  PAPER_GENRES,
+  PAPER_GENRE_MODES,
+  PAPER_TEMPLATES,
+  detectPaperGenre,
+  isPaperGenre,
+  isPaperGenreMode,
+  paperTemplateToSections,
+} from './paper-templates'
 export {
   MAX_ATTACHMENT_DATAURL_IMPORT_CHARS,
   MAX_IMPORT_BYTES,

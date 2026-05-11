@@ -1,4 +1,6 @@
 import type { IngestKind, ResearchSection, ResearchTodo, ResearchTodoStatus } from './research-types'
+import type { PaperGenreMode } from './paper-templates'
+import { isPaperGenreMode } from './paper-templates'
 
 /** Current interchange revision; bump when the snapshot shape changes incompatibly. */
 export const WORKSPACE_SNAPSHOT_VERSION = '2'
@@ -44,6 +46,8 @@ export type OverviewWorkspaceTabSnapshot = {
   ingestKind?: IngestKind
   lastSeedPrompt: string
   todos: ResearchTodo[]
+  /** Paper scaffold UI: `auto` runs keyword detection on prompt + workspace notes. */
+  paperGenreMode?: PaperGenreMode
 }
 
 export type OverviewWorkspaceSnapshot = {
@@ -179,6 +183,14 @@ function parseTab(path: string, value: unknown): OverviewWorkspaceTabSnapshot {
   const sections = value.sections.map((s, i) => parseSection(`${path}.sections[${i}]`, s, 0))
   if (!Array.isArray(value.todos)) fail(`${path}.todos: expected array`)
   const todos = value.todos.map((t, i) => parseTodo(`${path}.todos[${i}]`, t))
+  let paperGenreMode: PaperGenreMode | undefined
+  if (value.paperGenreMode !== undefined) {
+    const rawMode = expectString(`${path}.paperGenreMode`, value.paperGenreMode)
+    if (!isPaperGenreMode(rawMode)) {
+      fail(`${path}.paperGenreMode: expected auto or a known PaperGenre`)
+    }
+    paperGenreMode = rawMode
+  }
   const tab: OverviewWorkspaceTabSnapshot = {
     id,
     sections,
@@ -188,6 +200,7 @@ function parseTab(path: string, value: unknown): OverviewWorkspaceTabSnapshot {
     todos,
   }
   if (ingestKind !== undefined) tab.ingestKind = ingestKind
+  if (paperGenreMode !== undefined) tab.paperGenreMode = paperGenreMode
   return tab
 }
 
@@ -261,15 +274,19 @@ export function serializeWorkspace(input: SerializeWorkspaceInput): OverviewWork
     exportedAt: new Date().toISOString(),
     shellContext: input.shellContext,
     activeTabId: input.activeTabId,
-    tabs: input.tabs.map((t) => ({
-      id: t.id,
-      sections: t.sections,
-      researchPrompt: t.researchPrompt,
-      ingestQuery: t.ingestQuery,
-      ingestKind: t.ingestKind,
-      lastSeedPrompt: t.lastSeedPrompt,
-      todos: t.todos,
-    })),
+    tabs: input.tabs.map((t) => {
+      const row: OverviewWorkspaceTabSnapshot = {
+        id: t.id,
+        sections: t.sections,
+        researchPrompt: t.researchPrompt,
+        ingestQuery: t.ingestQuery,
+        ingestKind: t.ingestKind,
+        lastSeedPrompt: t.lastSeedPrompt,
+        todos: t.todos,
+      }
+      if (t.paperGenreMode !== undefined) row.paperGenreMode = t.paperGenreMode
+      return row
+    }),
     drawerQuickNotes,
     attachments: attachmentsMeta,
   }

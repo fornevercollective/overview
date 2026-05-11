@@ -1,0 +1,81 @@
+/* Full-page Excalidraw — scoped under .sk-shell (presentation.css supplies .pr-excal-wrap base). */
+.sk-shell {
+  --sk-header-h: 52px;
+  --sk-main-pad: clamp(8px, 2vw, 16px);
+  --sk-excal-min-h: calc(100dvh - var(--sk-header-h) - 2 * var(--sk-main-pad));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.sk-shell *,
+.sk-shell *::before,
+.sk-shell *::after {
+  box-sizing: border-box;
+}
+
+.sk-shell-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--sk-header-h);
+  padding: 10px clamp(12px, 3vw, 24px);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.sk-shell-main {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  padding: var(--sk-main-pad);
+}
+
+.sk-shell-main > * {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+.sk-shell .pr-excal-wrap {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--sk-excal-min-h);
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  /* Let Excalidraw (light/dark) paint the surface; avoid an opaque layer over the canvas. */
+  background: transparent;
+}
+
+.sk-shell .pr-excal-wrap .excalidraw {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sk-shell-fallback {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+}

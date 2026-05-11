@@ -1,4 +1,19 @@
+import type { PaperSectionTemplate } from './paper-templates'
 import type { ResearchSection } from './research-types'
+
+function paperTemplateNodeToSection(node: PaperSectionTemplate): ResearchSection {
+  const children = (node.children ?? []).map(paperTemplateNodeToSection)
+  return newSection({
+    title: node.title,
+    body: node.hintBody ?? '',
+    children,
+  })
+}
+
+/** Builds live outline nodes from a paper template (new ids each call). */
+export function paperTemplateToSections(template: PaperSectionTemplate[]): ResearchSection[] {
+  return template.map(paperTemplateNodeToSection)
+}
 
 export function newSection(partial?: Partial<ResearchSection>): ResearchSection {
   return {
