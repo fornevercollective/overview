@@ -1,10 +1,9 @@
-import { Suspense, lazy, useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import Presentation from './Presentation'
 import ResearchOverview, { type ResearchOverviewProps } from './research/ResearchOverview'
 import type { OverviewWorkspaceSnapshot } from './research/workspace-snapshot'
+import Sketch from './Sketch'
 import Summary from './Summary'
-
-const Sketch = lazy(() => import('./Sketch'))
 
 /** Set to your backend when ready; `undefined` keeps the built-in offline stub (expand, refine, seed). */
 const onAiIterate: ResearchOverviewProps['onAiIterate'] = undefined
@@ -42,11 +41,7 @@ export default function App() {
   }
 
   if (page === 'sketch') {
-    return (
-      <Suspense fallback={<div style={{ padding: 24 }}>Loading sketch workspace…</div>}>
-        <Sketch onBack={backToWorkspace} />
-      </Suspense>
-    )
+    return <Sketch onBack={backToWorkspace} />
   }
 
   return (
