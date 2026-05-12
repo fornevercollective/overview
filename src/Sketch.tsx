@@ -15,9 +15,7 @@ export default function Sketch({ onBack }: SketchProps) {
         </button>
       </header>
       <main className="sk-shell-main" aria-label="Sketch canvas">
-        <ExcalidrawLazyPanel
-          fallback={<div className="pr-excal-fallback sk-shell-fallback">Loading sketch workspace…</div>}
-        />
+        <ExcalidrawLazyPanel />
       </main>
     </div>
   )

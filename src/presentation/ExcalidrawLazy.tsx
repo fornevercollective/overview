@@ -1,10 +1,6 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
-
-const Excalidraw = lazy(async () => {
-  await import('@excalidraw/excalidraw/index.css')
-  const mod = await import('@excalidraw/excalidraw')
-  return { default: mod.Excalidraw }
-})
+import { useEffect, useState } from 'react'
+import '@excalidraw/excalidraw/index.css'
+import { Excalidraw } from '@excalidraw/excalidraw'
 
 function usePrefersColorSchemeTheme(): 'light' | 'dark' {
   const [theme, setTheme] = useState<'light' | 'dark'>(() =>
@@ -22,14 +18,12 @@ function usePrefersColorSchemeTheme(): 'light' | 'dark' {
   return theme
 }
 
-export function ExcalidrawLazyPanel({ fallback }: { fallback: ReactNode }) {
+export function ExcalidrawLazyPanel() {
   const theme = usePrefersColorSchemeTheme()
 
   return (
-    <Suspense fallback={fallback}>
-      <div className="pr-excal-wrap">
-        <Excalidraw theme={theme} UIOptions={{ canvasActions: { loadScene: false } }} />
-      </div>
-    </Suspense>
+    <div className="pr-excal-wrap">
+      <Excalidraw theme={theme} UIOptions={{ canvasActions: { loadScene: false } }} />
+    </div>
   )
 }

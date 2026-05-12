@@ -4,11 +4,15 @@
 
 ## Before / after
 
-Interactive comparison (drag the slider): [`readme-comparison.html` on GitHub Pages](https://fornevercollective.github.io/overview/readme-comparison.html) after deploy.
+**GitHub’s README cannot run JavaScript or custom elements**, so you will not see the draggable slider here—only static images. The **img-comparison-slider** UI lives on GitHub Pages:
+
+**[Open interactive before / after (drag the handle) →](https://fornevercollective.github.io/overview/readme-comparison.html)**
+
+Static previews (click either image to open the same interactive page):
 
 | Light | Dark |
 |:-----:|:----:|
-| ![Light theme](https://raw.githubusercontent.com/fornevercollective/overview/main/public/readme-assets/before.png) | ![Dark theme](https://raw.githubusercontent.com/fornevercollective/overview/main/public/readme-assets/after.png) |
+| [![Light theme — opens interactive comparison](https://raw.githubusercontent.com/fornevercollective/overview/main/public/readme-assets/before.png)](https://fornevercollective.github.io/overview/readme-comparison.html) | [![Dark theme — opens interactive comparison](https://raw.githubusercontent.com/fornevercollective/overview/main/public/readme-assets/after.png)](https://fornevercollective.github.io/overview/readme-comparison.html) |
 
 ---
 

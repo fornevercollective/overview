@@ -449,9 +449,7 @@ export default function Presentation({ onBack }: PresentationProps) {
           </a>{' '}
           in a new tab if the panel below is too heavy for your device.
         </p>
-        <ExcalidrawLazyPanel
-          fallback={<div className="pr-muted" style={{ padding: '20px' }}>Loading drawing surface…</div>}
-        />
+        <ExcalidrawLazyPanel />
       </section>
 
       <section
