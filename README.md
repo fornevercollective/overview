@@ -1,5 +1,17 @@
 # Overview
 
+<img src="./public/readme-assets/after.png" alt="Overview research workspace (screenshot)" width="100%" />
+
+## Before / after
+
+Interactive comparison (drag the slider): [`readme-comparison.html` on GitHub Pages](https://fornevercollective.github.io/overview/readme-comparison.html) after deploy.
+
+| Light | Dark |
+|:-----:|:----:|
+| ![Light theme](./public/readme-assets/before.png) | ![Dark theme](./public/readme-assets/after.png) |
+
+---
+
 Single-page **React + TypeScript + Vite** workspace for AI-assisted research notes: an outlinable editor, printable **Summary**, and a **Presentation** “reading room” with slide splits and optional whiteboard. State stays in the browser; interchange is **JSON snapshots** and compressed **`#workspace-share=`** URL fragments.
 
 **Agent and build details:** see [`AGENTS.md`](./AGENTS.md) (authoritative for automation, env vars, and schema paths).

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Overview — light / dark comparison</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/img-comparison-slider@8/dist/styles.css"
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0 auto;
+        max-width: 960px;
+        padding: 1.5rem;
+      }
+      h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+      }
+      p {
+        margin: 0 0 1rem;
+        color: #555;
+      }
+      @media (prefers-color-scheme: dark) {
+        p {
+          color: #aaa;
+        }
+      }
+      #before-and-after-labels {
+        width: 100%;
+        display: block;
+      }
+      #before-and-after-labels figure.before,
+      #before-and-after-labels figure.after {
+        position: relative;
+        margin: 0;
+      }
+      #before-and-after-labels figure.before figcaption,
+      #before-and-after-labels figure.after figcaption {
+        background: #fff;
+        border: 1px solid #c0c0c0;
+        border-radius: 12px;
+        color: #2e3452;
+        opacity: 0.9;
+        padding: 12px;
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        line-height: 100%;
+        font-size: 0.875rem;
+      }
+      #before-and-after-labels figure.before figcaption {
+        left: 12px;
+      }
+      #before-and-after-labels figure.after figcaption {
+        right: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Research Overview — light and dark</h1>
+    <p>
+      Drag the divider or use arrow keys. Same UI in
+      <strong>light</strong> (before) and <strong>dark</strong> (after)
+      color schemes.
+    </p>
+    <img-comparison-slider id="before-and-after-labels" keyboard="enabled">
+      <figure slot="first" class="before">
+        <img width="100%" src="./readme-assets/before.png" alt="Light theme" />
+        <figcaption>Before</figcaption>
+      </figure>
+      <figure slot="second" class="after">
+        <img width="100%" src="./readme-assets/after.png" alt="Dark theme" />
+        <figcaption>After</figcaption>
+      </figure>
+    </img-comparison-slider>
+    <!-- dist/index.js registers the custom element as an IIFE (not ESM); defer matches the package README. -->
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/img-comparison-slider@8/dist/index.js"
+    ></script>
+  </body>
+</html>
