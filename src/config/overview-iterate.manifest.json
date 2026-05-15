@@ -1,0 +1,5 @@
+{
+  "_comment": "Default local inference (Ollama). Mirror ~/models/overview-iterate.json — drawer session baseUrl/modelName override when linked.",
+  "openAiCompatibleBaseUrl": "http://127.0.0.1:11434/v1",
+  "chatModel": "llama3.1:8b"
+}

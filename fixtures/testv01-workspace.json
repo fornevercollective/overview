@@ -1,0 +1,45 @@
+{
+  "version": "2",
+  "exportedAt": "2026-05-13T12:00:00.000Z",
+  "shellContext": "testv01 — Load hero URL, open Transcript compare dock (both disclosure rows), paste ASR / plain transcript / captions into the three columns. Document / Split views show compiled markdown from the outline. Wire onAiIterate for real generative fills; offline stub expands placeholders only.",
+  "activeTabId": "a0000001-0000-4000-8000-000000000001",
+  "drawerQuickNotes": "testv01 checklist:\n- Hero ingest: YouTube URL is already on the tab.\n- Open dock → open Whisper/transcript/captions when pasting text.\n- Capture (menu): import stills or local-video freeze frames for EXIF + luma scan.\n- Merge sources → prompt before seed if you want the URL in the topic line.",
+  "tabs": [
+    {
+      "id": "a0000001-0000-4000-8000-000000000001",
+      "researchPrompt": "testv01: clip study + doc layout (images, headings, lists)",
+      "ingestQuery": "https://www.youtube.com/watch?v=y7-h3vn2ah8",
+      "ingestKind": "transcript",
+      "lastSeedPrompt": "",
+      "paperGenreMode": "auto",
+      "todos": [],
+      "sections": [
+        {
+          "id": "b0000001-0000-4000-8000-000000000001",
+          "title": "testv01 — YouTube clip & generative doc layout",
+          "body": "Primary clip: [open on YouTube](https://www.youtube.com/watch?v=y7-h3vn2ah8) (`y7-h3vn2ah8`).\n\nUse **Document** or **Split** in the workbench toolbar for reading-room layout. Below: sample markdown (image + list) for layout smoke-test.",
+          "children": [
+            {
+              "id": "b0000002-0000-4000-8000-000000000002",
+              "title": "Still + figure caption",
+              "body": "![layout smoke — picsum seed testv01](https://picsum.photos/seed/testv01overview/720/405)\n\n*Figure: random still via picsum seed `testv01overview` (replace with your own frame captures from Menu → Capture when needed).*",
+              "children": []
+            },
+            {
+              "id": "b0000003-0000-4000-8000-000000000003",
+              "title": "Transcript pipeline (manual paste)",
+              "body": "| Column | Paste source |\n| --- | --- |\n| Whisper | Host / device ASR export |\n| transcript | Clean spoken text |\n| captions | `.srt` / `.vtt` / timed export |\n\nEnable **Sync scroll** to keep columns aligned while skimming.",
+              "children": []
+            },
+            {
+              "id": "b0000004-0000-4000-8000-000000000004",
+              "title": "Generative outline (host)",
+              "body": "With `onAiIterate` wired: use **Expand (AI)** / **Refine** on cards, or seed from the hero topic line. Stub host leaves deterministic placeholder text only.",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

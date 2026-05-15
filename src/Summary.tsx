@@ -69,9 +69,11 @@ export default function Summary({
             <strong>Menu FAB</strong> — Floating control for the drawer and export/import actions.
           </li>
           <li>
-            <strong>Agent hooks</strong> — <code className="overview-summary-code">onWorkspaceChange</code> (debounced)
-            and dev-only <code className="overview-summary-code">window.__OVERVIEW_WORKSPACE__</code> for scripts and
-            extensions.
+            <strong>Agent hooks</strong> — <code className="overview-summary-code">onWorkspaceChange</code> (debounced),
+            optional <code className="overview-summary-code">window.__OVERVIEW_WORKSPACE__</code> (dev, Menu → Actions
+            opt-in on production, or <code className="overview-summary-code">VITE_EXPOSE_WORKSPACE_API=1</code>), plus{' '}
+            <code className="overview-summary-code">overview-workspace-snapshot</code> window events when that surface is
+            on. See <code className="overview-summary-code">docs/agent/09-agent-collaboration.md</code>.
           </li>
           <li>
             <strong>Ingest</strong> — Hero URL field with ingest kind tabs (transcript / images / notes) when the field

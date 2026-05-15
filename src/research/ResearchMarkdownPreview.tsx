@@ -43,15 +43,17 @@ export default function ResearchMarkdownPreview({ markdown }: ResearchMarkdownPr
   }
 
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkMath]}
-      rehypePlugins={[
-        [rehypeKatex, { strict: false, throwOnError: false }],
-        rehypeHighlight,
-      ]}
-      components={markdownComponents}
-    >
-      {markdown}
-    </ReactMarkdown>
+    <div className="ro-md-prose">
+      <ReactMarkdown
+        remarkPlugins={[remarkMath]}
+        rehypePlugins={[
+          [rehypeKatex, { strict: false, throwOnError: false }],
+          rehypeHighlight,
+        ]}
+        components={markdownComponents}
+      >
+        {markdown}
+      </ReactMarkdown>
+    </div>
   )
 }

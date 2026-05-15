@@ -25,6 +25,8 @@ export type SnapshotFileAttachment = {
 export type SnapshotAiConfig = {
   baseUrl?: string
   modelName?: string
+  outlineModel?: string
+  workspaceModel?: string
 }
 
 /** Reject imported JSON text larger than this (characters ≈ bytes for ASCII). */
@@ -70,11 +72,35 @@ export class WorkspaceSnapshotParseError extends Error {
   }
 }
 
+/**
+ * When `source` is `agent`, the UI shows a distinct hero badge (programmatic merge vs file import).
+ * Default / `import` behaves like a normal JSON import for messaging purposes.
+ */
+export type OverviewWorkspaceLoadOptions = {
+  source?: 'import' | 'agent'
+}
+
 export type OverviewWorkspaceDevApi = {
   getSnapshot: () => OverviewWorkspaceSnapshot
-  /** Validates with `parseWorkspaceSnapshot` then replaces in-memory workspace state. */
-  loadSnapshot: (snap: unknown) => OverviewWorkspaceSnapshot
+  /**
+   * Validates with `parseWorkspaceSnapshot` then replaces in-memory workspace state.
+   * Use `{ source: 'agent' }` when an external agent applies edits so humans can tell merges apart.
+   */
+  loadSnapshot: (snap: unknown, opts?: OverviewWorkspaceLoadOptions) => OverviewWorkspaceSnapshot
   subscribe: (listener: (snap: OverviewWorkspaceSnapshot) => void) => () => void
+}
+
+/** `sessionStorage` key — value `"1"` opts this tab into `window.__OVERVIEW_WORKSPACE__` on production builds. */
+export const OVERVIEW_WORKSPACE_BRIDGE_SESSION_KEY = 'overview-workspace-bridge'
+
+/**
+ * Fired on `window` after debounced workspace saves when the host surface is active (dev, opt-in tab, or
+ * `VITE_EXPOSE_WORKSPACE_API=1`). `CustomEvent` detail: `{ snapshot: OverviewWorkspaceSnapshot }`.
+ */
+export const OVERVIEW_WORKSPACE_SNAPSHOT_EVENT = 'overview-workspace-snapshot' as const
+
+export type OverviewWorkspaceSnapshotEventDetail = {
+  snapshot: OverviewWorkspaceSnapshot
 }
 
 function fail(message: string): never {
@@ -146,10 +172,27 @@ function parseAiConfig(path: string, value: unknown): SnapshotAiConfig | undefin
   if (value.modelName !== undefined) {
     modelName = expectString(`${path}.modelName`, value.modelName).trim() || undefined
   }
-  if (baseUrl === undefined && modelName === undefined) return undefined
+  let outlineModel: string | undefined
+  let workspaceModel: string | undefined
+  if (value.outlineModel !== undefined) {
+    outlineModel = expectString(`${path}.outlineModel`, value.outlineModel).trim() || undefined
+  }
+  if (value.workspaceModel !== undefined) {
+    workspaceModel = expectString(`${path}.workspaceModel`, value.workspaceModel).trim() || undefined
+  }
+  if (
+    baseUrl === undefined &&
+    modelName === undefined &&
+    outlineModel === undefined &&
+    workspaceModel === undefined
+  ) {
+    return undefined
+  }
   const out: SnapshotAiConfig = {}
   if (baseUrl !== undefined) out.baseUrl = baseUrl
   if (modelName !== undefined) out.modelName = modelName
+  if (outlineModel !== undefined) out.outlineModel = outlineModel
+  if (workspaceModel !== undefined) out.workspaceModel = workspaceModel
   return out
 }
 
@@ -291,11 +334,23 @@ export function serializeWorkspace(input: SerializeWorkspaceInput): OverviewWork
     attachments: attachmentsMeta,
   }
   const ai = input.aiConfig
-  if (ai !== undefined && (ai.baseUrl !== undefined || ai.modelName !== undefined)) {
+  if (
+    ai !== undefined &&
+    (ai.baseUrl !== undefined ||
+      ai.modelName !== undefined ||
+      ai.outlineModel !== undefined ||
+      ai.workspaceModel !== undefined)
+  ) {
     const cfg: SnapshotAiConfig = {}
     if (ai.baseUrl !== undefined && ai.baseUrl.trim()) cfg.baseUrl = ai.baseUrl.trim()
     if (ai.modelName !== undefined && ai.modelName.trim()) cfg.modelName = ai.modelName.trim()
-    if (cfg.baseUrl !== undefined || cfg.modelName !== undefined) snap.aiConfig = cfg
+    if (ai.outlineModel !== undefined && ai.outlineModel.trim()) cfg.outlineModel = ai.outlineModel.trim()
+    if (ai.workspaceModel !== undefined && ai.workspaceModel.trim()) {
+      cfg.workspaceModel = ai.workspaceModel.trim()
+    }
+    if (cfg.baseUrl !== undefined || cfg.modelName !== undefined || cfg.outlineModel || cfg.workspaceModel) {
+      snap.aiConfig = cfg
+    }
   }
   return snap
 }

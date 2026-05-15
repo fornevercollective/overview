@@ -1,16 +1,28 @@
 import { Suspense, lazy, useCallback, useRef, useState } from 'react'
-import Presentation from './Presentation'
+import { createOllamaOnAiIterate, createOllamaWorkspaceAssistant } from './ai/ollamaOpenAiIterate'
 import ResearchOverview, { type ResearchOverviewProps } from './research/ResearchOverview'
 import type { OverviewWorkspaceSnapshot } from './research/workspace-snapshot'
-import Summary from './Summary'
 
 const Sketch = lazy(() => import('./Sketch'))
+const Presentation = lazy(() => import('./Presentation'))
+const Summary = lazy(() => import('./Summary'))
+const Session = lazy(() => import('./Session'))
+const VideoFeedsLab = lazy(() => import('./research/VideoFeedsLab'))
 
-/** Set to your backend when ready; `undefined` keeps the built-in offline stub (expand, refine, seed). */
-const onAiIterate: ResearchOverviewProps['onAiIterate'] = undefined
+const routeFallback = <div style={{ padding: 24 }}>Loading…</div>
+
+/** Set `VITE_USE_AI_STUB=1` at build time to skip local chat calls (deterministic in-app stubs). */
+const useAiStub = import.meta.env.VITE_USE_AI_STUB === '1'
+
+const onAiIterate: ResearchOverviewProps['onAiIterate'] = useAiStub ? undefined : createOllamaOnAiIterate()
+const onWorkspaceAssistant: ResearchOverviewProps['onWorkspaceAssistant'] = useAiStub
+  ? undefined
+  : createOllamaWorkspaceAssistant()
 
 export default function App() {
-  const [page, setPage] = useState<'app' | 'summary' | 'presentation' | 'sketch'>('app')
+  const [page, setPage] = useState<
+    'app' | 'summary' | 'presentation' | 'sketch' | 'session' | 'videoLab'
+  >('app')
   const lastWorkspaceSnapshotRef = useRef<OverviewWorkspaceSnapshot | null>(null)
 
   const onWorkspaceChange = useCallback((snap: OverviewWorkspaceSnapshot) => {
@@ -20,6 +32,8 @@ export default function App() {
   const openSummary = useCallback(() => setPage('summary'), [])
   const openPresentation = useCallback(() => setPage('presentation'), [])
   const openSketch = useCallback(() => setPage('sketch'), [])
+  const openSession = useCallback(() => setPage('session'), [])
+  const openVideoLab = useCallback(() => setPage('videoLab'), [])
   const backToWorkspace = useCallback(() => setPage('app'), [])
   const exportFromSummary = useCallback(() => {
     window.location.hash = '#workspace-export'
@@ -28,23 +42,50 @@ export default function App() {
 
   if (page === 'summary') {
     return (
-      <Summary
-        onBackToWorkspace={backToWorkspace}
-        onOpenPresentation={openPresentation}
-        onExportWorkspaceJson={exportFromSummary}
-        getWorkspaceSnapshot={() => lastWorkspaceSnapshotRef.current}
-      />
+      <Suspense fallback={routeFallback}>
+        <Summary
+          onBackToWorkspace={backToWorkspace}
+          onOpenPresentation={openPresentation}
+          onExportWorkspaceJson={exportFromSummary}
+          getWorkspaceSnapshot={() => lastWorkspaceSnapshotRef.current}
+        />
+      </Suspense>
     )
   }
 
   if (page === 'presentation') {
-    return <Presentation onBack={backToWorkspace} />
+    return (
+      <Suspense fallback={routeFallback}>
+        <Presentation onBack={backToWorkspace} />
+      </Suspense>
+    )
   }
 
   if (page === 'sketch') {
     return (
-      <Suspense fallback={<div style={{ padding: 24 }}>Loading sketch workspace…</div>}>
+      <Suspense fallback={routeFallback}>
         <Sketch onBack={backToWorkspace} />
+      </Suspense>
+    )
+  }
+
+  if (page === 'session') {
+    return (
+      <Suspense fallback={routeFallback}>
+        <Session
+          onBackToWorkspace={backToWorkspace}
+          onOpenSummary={openSummary}
+          onOpenPresentation={openPresentation}
+          onOpenSketch={openSketch}
+        />
+      </Suspense>
+    )
+  }
+
+  if (page === 'videoLab') {
+    return (
+      <Suspense fallback={routeFallback}>
+        <VideoFeedsLab onBack={backToWorkspace} />
       </Suspense>
     )
   }
@@ -52,9 +93,12 @@ export default function App() {
   return (
     <ResearchOverview
       onAiIterate={onAiIterate}
+      onWorkspaceAssistant={onWorkspaceAssistant}
       onOpenSummary={openSummary}
       onOpenPresentation={openPresentation}
       onOpenSketch={openSketch}
+      onOpenSession={openSession}
+      onOpenVideoLab={openVideoLab}
       onWorkspaceChange={onWorkspaceChange}
     />
   )

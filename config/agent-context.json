@@ -10,7 +10,12 @@
       "docs/agent/02-schemas.md",
       "docs/agent/03-github-actions.md",
       "docs/agent/04-theming.md",
-      "docs/agent/05-github-models.md"
+      "docs/agent/05-github-models.md",
+      "docs/agent/06-cursor-docs.md",
+      "docs/agent/07-ai-notes.md",
+      "docs/agent/08-local-ollama.md",
+      "docs/agent/09-agent-collaboration.md",
+      "docs/agent/10-colab-evolution.md"
     ],
     "human_readme": "README.md"
   },
@@ -24,7 +29,8 @@
     "dev": "npm run dev",
     "lint": "npm run lint",
     "build": "npm run build",
-    "preview": "npm run preview"
+    "preview": "npm run preview",
+    "ollama_smoke": "npm run ollama:smoke"
   },
   "entrypoints": {
     "html": "index.html",
@@ -47,6 +53,7 @@
     "ai_iterate": {
       "file": "src/App.tsx",
       "symbol": "onAiIterate",
+      "implementation": "src/ai/ollamaOpenAiIterate.ts:createOllamaOnAiIterate",
       "request_types": ["expand", "refine", "seed"],
       "request_type_def": "src/research/research-types.ts:AiIterateRequest"
     },
@@ -58,7 +65,10 @@
     },
     "dev_api": {
       "global": "window.__OVERVIEW_WORKSPACE__",
-      "type": "src/research/workspace-snapshot.ts:OverviewWorkspaceDevApi"
+      "type": "src/research/workspace-snapshot.ts:OverviewWorkspaceDevApi",
+      "snapshot_event": "overview-workspace-snapshot",
+      "session_opt_in_key": "overview-workspace-bridge",
+      "docs": "docs/agent/09-agent-collaboration.md"
     }
   },
   "ci": {
@@ -75,9 +85,23 @@
     "docs": "docs/agent/05-github-models.md"
   },
   "env_vars": {
-    "build_time": ["VITE_BASE_PATH", "VITE_DEFAULT_MODEL"],
+    "build_time": [
+      "VITE_BASE_PATH",
+      "VITE_DEFAULT_MODEL",
+      "VITE_FFMPEG_STREAM_URL_TEMPLATE",
+      "VITE_USE_AI_STUB",
+      "VITE_OVERVIEW_CHAT_BASE",
+      "VITE_OVERVIEW_CHAT_MODEL",
+      "VITE_OVERVIEW_OPENAI_COMPAT_KEY",
+      "VITE_FORCE_DIRECT_OLLAMA",
+      "VITE_EXPOSE_WORKSPACE_API",
+      "VITE_RELAY_HEXCAST_STREAM"
+    ],
     "ci_only": ["GITHUB_TOKEN", "GITHUB_MODELS_ENDPOINT"],
     "scripts_only": ["GH_MODELS_MODEL"]
+  },
+  "fixtures": {
+    "testv01_workspace_import": "fixtures/testv01-workspace.json"
   },
   "do_not_commit": [".env", ".env.*", "*.local", "node_modules/", "dist/"],
   "license": "see LICENSE if present"

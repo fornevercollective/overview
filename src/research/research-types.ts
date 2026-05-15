@@ -15,6 +15,11 @@ export type AiIterateRequestExpandRefine = {
   pathTitles: string[]
   /** Global scratchpad from the shell (ResearchOverview); optional for backends. */
   workspaceContext?: string
+  /**
+   * Resolved paper scaffold genre for the tab (Auto = heuristic on prompt + workspace notes).
+   * Hosts may use for stylistic hints on expand/refine; omit if unsupported.
+   */
+  paperGenre?: import('./paper-templates').PaperGenre
 }
 
 /** Generate or reshape the outline under the root article from a free-text prompt. */
@@ -30,7 +35,7 @@ export type AiIterateRequestSeed = {
    * Resolved paper scaffold genre from the workspace UI (Auto uses heuristics).
    * Same literals as `PaperGenre` in `./paper-templates`. Hosts may ignore; the offline stub uses it when the root outline is empty.
    */
-  paperGenre?: 'empirical_imrad' | 'review' | 'theoretical' | 'case_study' | 'general'
+  paperGenre?: import('./paper-templates').PaperGenre
 }
 
 export type AiIterateRequest = AiIterateRequestExpandRefine | AiIterateRequestSeed
@@ -92,15 +97,22 @@ export type {
 export type {
   PaperGenre,
   PaperGenreMode,
+  PaperGenreUiGroup,
   PaperSectionTemplate,
 } from './paper-templates'
 export {
+  GENRE_LENS_LYRICS_LINGUISTICS_PILLARS,
+  GENRE_STORY_FORMAT_CLI_SYNC_NOTE,
+  PAPER_GENRE_SELECT_OPTIONS,
+  PAPER_GENRE_UI_GROUPS,
   PAPER_GENRES,
   PAPER_GENRE_MODES,
   PAPER_TEMPLATES,
   detectPaperGenre,
   isPaperGenre,
   isPaperGenreMode,
+  paperGenreIterateGuidance,
+  paperGenreSeedGuidance,
   paperTemplateToSections,
 } from './paper-templates'
 export {

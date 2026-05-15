@@ -91,3 +91,26 @@ export function findSection(
   }
   return null
 }
+
+function sectionToMarkdownLines(s: ResearchSection, headingDepth: number): string[] {
+  const level = Math.min(6, Math.max(1, headingDepth))
+  const hashes = '#'.repeat(level)
+  const title = (s.title ?? '').trim() || 'Untitled'
+  const lines: string[] = [`${hashes} ${title}`]
+  const body = (s.body ?? '').trim()
+  if (body) lines.push(body)
+  for (const c of s.children) {
+    lines.push('', ...sectionToMarkdownLines(c, headingDepth + 1))
+  }
+  return lines
+}
+
+/** Single markdown document from the workspace outline (top-level sections = `#` … `######` nested). */
+export function workspaceSectionsToMarkdown(sections: ResearchSection[]): string {
+  if (!sections.length) return ''
+  const parts: string[] = []
+  for (const root of sections) {
+    parts.push(sectionToMarkdownLines(root, 1).join('\n'))
+  }
+  return parts.join('\n\n')
+}

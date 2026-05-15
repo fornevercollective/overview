@@ -69,9 +69,26 @@
             "review",
             "theoretical",
             "case_study",
-            "general"
+            "general",
+            "screenplay",
+            "book",
+            "blog",
+            "article",
+            "social_thread",
+            "tv_news",
+            "podcast",
+            "fiction",
+            "nonfiction",
+            "childrens_lit",
+            "young_adult",
+            "comic_script",
+            "graphic_novel",
+            "lyrics_linguistics_corpus",
+            "novella",
+            "regional_structure",
+            "word_order_typology"
           ],
-          "description": "Paper scaffold genre for the tab; auto picks from prompt + workspace notes heuristics."
+          "description": "Outline scaffold genre for the tab; auto picks from prompt + workspace notes heuristics."
         },
         "todos": {
           "type": "array",

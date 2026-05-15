@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent } from 'react'
 import type {
   AiIterateRequest,
   AiIterateResult,
@@ -12,11 +12,14 @@ import type {
 } from './research-types'
 import type {
   OverviewWorkspaceDevApi,
+  OverviewWorkspaceLoadOptions,
   OverviewWorkspaceSnapshot,
   SnapshotAiConfig,
   SnapshotFileAttachment,
 } from './workspace-snapshot'
 import {
+  OVERVIEW_WORKSPACE_BRIDGE_SESSION_KEY,
+  OVERVIEW_WORKSPACE_SNAPSHOT_EVENT,
   parseWorkspaceSnapshot,
   parseWorkspaceSnapshotFromJsonText,
   serializeWorkspace,
@@ -36,8 +39,13 @@ import {
   newSection,
   paperTemplateToSections,
   removeSection,
+  workspaceSectionsToMarkdown,
 } from './research-tree'
 import {
+  GENRE_LENS_LYRICS_LINGUISTICS_PILLARS,
+  GENRE_STORY_FORMAT_CLI_SYNC_NOTE,
+  PAPER_GENRE_SELECT_OPTIONS,
+  PAPER_GENRE_UI_GROUPS,
   PAPER_TEMPLATES,
   detectPaperGenre,
   type PaperGenre,
@@ -45,7 +53,18 @@ import {
 } from './paper-templates'
 import ResearchMarkdownPreview from './ResearchMarkdownPreview'
 import ThemeSplitPreview from './ThemeSplitPreview'
+import LiveHexIngestThumbnails from './LiveHexIngestThumbnails'
+import TranscriptCompareHero from './TranscriptCompareHero'
+import {
+  DRAWER_AI_SESSION_KEY,
+  readDrawerAiFromSession,
+  type DrawerAiSessionState,
+} from './drawerAiSession'
 import { parseYouTubeVideoId, youtubeNoCookieEmbedUrl } from '../util/youtube'
+import { fetchYoutubeOEmbed } from '../util/youtubeOembed'
+import type { MediaDiscoveryAnalysis } from './imageMediaDiscovery'
+import { analyzeImageDataUrl, histogramDistance, lumaHistogram64 } from './imageMediaDiscovery'
+import { grabVideoFrameDataUrl } from './videoFreezeFrame'
 import './research.css'
 
 type ResearchPageTab = {
@@ -59,7 +78,7 @@ type ResearchPageTab = {
   /** Last prompt that successfully ran seed (idle/blur dedupe). */
   lastSeedPrompt: string
   todos: ResearchTodo[]
-  /** Paper scaffold selector; `auto` uses keyword heuristics on prompt + workspace notes. */
+  /** Outline scaffold genre; `auto` uses keyword heuristics on prompt + workspace notes. */
   paperGenreMode: PaperGenreMode
 }
 
@@ -69,10 +88,32 @@ function createTab(sections: ResearchSection[]): ResearchPageTab {
     sections,
     researchPrompt: '',
     ingestQuery: '',
-    ingestKind: 'transcript',
+    ingestKind: 'notes',
     lastSeedPrompt: '',
     todos: [],
     paperGenreMode: 'auto',
+  }
+}
+
+const LS_WORKBENCH_VIEW = 'overview-workbench-view'
+
+type WorkbenchView = 'outline' | 'document' | 'split'
+
+function readWorkbenchView(): WorkbenchView {
+  try {
+    const v = sessionStorage.getItem(LS_WORKBENCH_VIEW)
+    if (v === 'document' || v === 'split' || v === 'outline') return v
+  } catch {
+    /* ignore */
+  }
+  return 'outline'
+}
+
+function writeWorkbenchView(v: WorkbenchView) {
+  try {
+    sessionStorage.setItem(LS_WORKBENCH_VIEW, v)
+  } catch {
+    /* ignore */
   }
 }
 
@@ -433,6 +474,22 @@ async function summarizeUrlMetadata(url: string): Promise<string> {
     return `Same-origin page at ${host} — fetched but no title or OpenGraph description was found.`
   }
 
+  const ytId = parseYouTubeVideoId(url)
+  if (ytId) {
+    const oe = await fetchYoutubeOEmbed(url)
+    if (oe) {
+      const desc = oe.author_name
+        ? `Channel: ${oe.author_name.replace(/\s+/g, ' ')}`
+        : 'YouTube video (paste transcript in dock for full text).'
+      return formatMetadataSentence('youtube.com', {
+        title: oe.title,
+        description: desc,
+        siteName: 'YouTube',
+      })
+    }
+    return `YouTube video ${ytId} — title unavailable (dev: use oEmbed proxy; prod: set VITE_METADATA_PROXY or paste OpenGraph JSON).`
+  }
+
   const proxyEnv = import.meta.env.VITE_METADATA_PROXY?.trim()
   if (proxyEnv) {
     const path = proxyEnv.startsWith('/') ? proxyEnv : `/${proxyEnv}`
@@ -503,15 +560,6 @@ const INGEST_KIND_TABS: { kind: IngestKind; label: string }[] = [
   { kind: 'notes', label: 'Notes' },
 ]
 
-const PAPER_GENRE_SELECT_OPTIONS: { value: PaperGenreMode; label: string }[] = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'empirical_imrad', label: 'IMRaD (empirical)' },
-  { value: 'review', label: 'Review' },
-  { value: 'theoretical', label: 'Theoretical' },
-  { value: 'case_study', label: 'Case study' },
-  { value: 'general', label: 'General' },
-]
-
 export type ResearchOverviewProps = {
   /** When set, called for Expand / Refine; otherwise a local stub runs. */
   onAiIterate?: (req: AiIterateRequest) => Promise<AiIterateResult | void>
@@ -528,6 +576,10 @@ export type ResearchOverviewProps = {
   onOpenPresentation?: () => void
   /** Footer + drawer entry to the full-page Sketch (Excalidraw) workspace (optional). */
   onOpenSketch?: () => void
+  /** Footer link to the Session briefing page (optional). */
+  onOpenSession?: () => void
+  /** Footer + hero live-hex menu: full-page video / hex feeds playground (optional). */
+  onOpenVideoLab?: () => void
 } & ResearchOverviewCorpusHandlers
 
 const SEED_DEBOUNCE_MS = 900
@@ -553,7 +605,6 @@ const TAB_SCROLL_STEP_FALLBACK_PX = 160
 /** Treat as flush with edge when within this many CSS pixels (subpixel / rounding). */
 const TAB_SCROLL_EDGE_EPSILON = 2
 
-const DRAWER_AI_SESSION_KEY = 'overview-drawer-ai-config'
 const CAPTURE_GALLERY_SESSION_KEY = 'overview-capture-gallery'
 
 /** Session-only PNG captures (not part of workspace JSON export). */
@@ -562,6 +613,8 @@ export type CaptureGalleryItem = {
   label: string
   dataUrl: string
   createdAt: string
+  kind?: 'shell' | 'split' | 'import' | 'video-freeze'
+  analysis?: MediaDiscoveryAnalysis
 }
 
 function readCaptureGalleryFromSession(): CaptureGalleryItem[] {
@@ -577,7 +630,19 @@ function readCaptureGalleryFromSession(): CaptureGalleryItem[] {
       if (typeof o.id !== 'string' || typeof o.label !== 'string') continue
       if (typeof o.dataUrl !== 'string' || typeof o.createdAt !== 'string') continue
       if (!o.dataUrl.startsWith('data:image/')) continue
-      out.push({ id: o.id, label: o.label, dataUrl: o.dataUrl, createdAt: o.createdAt })
+      const base: CaptureGalleryItem = {
+        id: o.id,
+        label: o.label,
+        dataUrl: o.dataUrl,
+        createdAt: o.createdAt,
+      }
+      if (typeof o.kind === 'string' && ['shell', 'split', 'import', 'video-freeze'].includes(o.kind)) {
+        base.kind = o.kind as CaptureGalleryItem['kind']
+      }
+      if (o.analysis && typeof o.analysis === 'object' && (o.analysis as { version?: unknown }).version === 1) {
+        base.analysis = o.analysis as MediaDiscoveryAnalysis
+      }
+      out.push(base)
     }
     return out
   } catch {
@@ -585,27 +650,75 @@ function readCaptureGalleryFromSession(): CaptureGalleryItem[] {
   }
 }
 
-type DrawerAiSessionState = {
-  baseUrl: string
-  modelName: string
-  apiKey: string
-  linked: boolean
-}
+const CAPTURE_EXIF_KEYS = [
+  'Lens_display',
+  'Aperture_display',
+  'ExposureTime_display',
+  'ISO_display',
+  'FocalLength',
+  'FocalLengthIn35mmFormat',
+  'Make',
+  'Model',
+  'Software',
+  'DateTimeOriginal',
+] as const
 
-function readDrawerAiFromSession(): DrawerAiSessionState {
-  try {
-    const raw = sessionStorage.getItem(DRAWER_AI_SESSION_KEY)
-    if (!raw) return { baseUrl: '', modelName: '', apiKey: '', linked: false }
-    const o = JSON.parse(raw) as Record<string, unknown>
-    return {
-      baseUrl: typeof o.baseUrl === 'string' ? o.baseUrl : '',
-      modelName: typeof o.modelName === 'string' ? o.modelName : '',
-      apiKey: typeof o.apiKey === 'string' ? o.apiKey : '',
-      linked: true,
-    }
-  } catch {
-    return { baseUrl: '', modelName: '', apiKey: '', linked: false }
-  }
+function CaptureDiscoveryPanel({
+  analysis,
+  histogramVsOlder,
+}: {
+  analysis?: MediaDiscoveryAnalysis
+  histogramVsOlder: number | null
+}) {
+  return (
+    <div className="ro-capture-discovery">
+      {histogramVsOlder !== null ? (
+        <p className="ro-capture-discovery-pair muted">
+          Luma histogram distance vs next-older gallery item:{' '}
+          <strong>{histogramVsOlder.toFixed(3)}</strong> — 0 = similar frames; larger values suggest a bigger visual
+          change (weak proxy only; not shot detection).
+        </p>
+      ) : null}
+      {!analysis ? (
+        <p className="muted">Running EXIF + luma scan…</p>
+      ) : (
+        <>
+          <h3 className="ro-capture-discovery-heading">Media discovery</h3>
+          <dl className="ro-capture-discovery-dl">
+            <dt>Resolution</dt>
+            <dd>
+              {analysis.pixels.width}×{analysis.pixels.height} ({analysis.pixels.megapixels} MP)
+            </dd>
+            <dt>Framing</dt>
+            <dd>
+              {analysis.framing.aspect}
+              {analysis.framing.commonAlias ? ` · ${analysis.framing.commonAlias}` : ''}
+            </dd>
+            <dt>Mean luma</dt>
+            <dd>{analysis.exposure.meanLuma0to1}</dd>
+            <dt>Zebra (≈clip)</dt>
+            <dd>{analysis.exposure.zebraNearWhitePct}% near white</dd>
+            <dt>Composition</dt>
+            <dd>{analysis.exposure.goldenThirdsDelta}</dd>
+            {CAPTURE_EXIF_KEYS.map((k) => {
+              const v = analysis.exif[k]
+              if (v == null || v === '') return null
+              return (
+                <Fragment key={k}>
+                  <dt>{String(k).replace(/_display$/, '')}</dt>
+                  <dd>{v}</dd>
+                </Fragment>
+              )
+            })}
+            <dt>Motion / rig</dt>
+            <dd>{analysis.motionRig.note}</dd>
+            <dt>Cuts / shots</dt>
+            <dd>{analysis.cutScan.note}</dd>
+          </dl>
+        </>
+      )}
+    </div>
+  )
 }
 
 type DrawerAttachmentRow = SnapshotFileAttachment & { file?: File }
@@ -630,6 +743,7 @@ const LS_CAPTURE_GALLERY_OPEN = 'overview-capture-gallery-open'
 
 const OVERVIEW_DRAWER_DETAIL_KEYS = [
   'paperGenre',
+  'paperGenreLens',
   'actions',
   'files',
   'aiLinking',
@@ -646,6 +760,7 @@ type OverviewDrawerDetailKey = (typeof OVERVIEW_DRAWER_DETAIL_KEYS)[number]
 
 const DEFAULT_DRAWER_DETAILS: Record<OverviewDrawerDetailKey, boolean> = {
   paperGenre: false,
+  paperGenreLens: false,
   actions: false,
   files: false,
   aiLinking: false,
@@ -714,6 +829,8 @@ export default function ResearchOverview({
   onOpenSummary,
   onOpenPresentation,
   onOpenSketch,
+  onOpenSession,
+  onOpenVideoLab,
   onTranscriptIngest,
   onCorpusSearch,
 }: ResearchOverviewProps) {
@@ -726,6 +843,7 @@ export default function ResearchOverview({
   const [ingestStubFeedback, setIngestStubFeedback] = useState<string | null>(null)
   const [shareLinkNotice, setShareLinkNotice] = useState<string | null>(null)
   const [paperAutoHintGenre, setPaperAutoHintGenre] = useState<PaperGenre>(() => detectPaperGenre(''))
+  const [workbenchView, setWorkbenchView] = useState<WorkbenchView>(() => readWorkbenchView())
   /**
    * Global scratchpad above the tab bar (session-only). Prefer this over per-tab notes so
    * “broader context” carries across research pages unless UX needs tab-scoped scratchpads.
@@ -748,6 +866,10 @@ export default function ResearchOverview({
     readLsBool(LS_WORKSPACE_NOTES_EXPANDED),
   )
 
+  useEffect(() => {
+    writeWorkbenchView(workbenchView)
+  }, [workbenchView])
+
   const [drawerQuickNotes, setDrawerQuickNotes] = useState('')
   const [attachments, setAttachments] = useState<DrawerAttachmentRow[]>([])
   const [attachmentSearchQuery, setAttachmentSearchQuery] = useState('')
@@ -766,6 +888,21 @@ export default function ResearchOverview({
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [lastAiUsage, setLastAiUsage] = useState<{ promptTokens?: number; completionTokens?: number } | null>(null)
 
+  const viteExposeWorkspaceApi = import.meta.env.VITE_EXPOSE_WORKSPACE_API === '1'
+  /** Production: opt-in via Menu → Actions; dev and `VITE_EXPOSE_WORKSPACE_API` always surface the host API. */
+  const [workspaceBridgeEnabled, setWorkspaceBridgeEnabled] = useState(() => {
+    if (import.meta.env.DEV || import.meta.env.VITE_EXPOSE_WORKSPACE_API === '1') return false
+    try {
+      return sessionStorage.getItem(OVERVIEW_WORKSPACE_BRIDGE_SESSION_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const workspaceHostSurface = useMemo(
+    () => import.meta.env.DEV || viteExposeWorkspaceApi || workspaceBridgeEnabled,
+    [viteExposeWorkspaceApi, workspaceBridgeEnabled],
+  )
+
   /** Snapshot (PNG) capture state — lazy-imports `html-to-image` only when user clicks. */
   const [captureBusy, setCaptureBusy] = useState(false)
   const [captureStatus, setCaptureStatus] = useState<{ text: string; isError: boolean } | null>(null)
@@ -777,6 +914,13 @@ export default function ResearchOverview({
   const themeSplitRef = useRef<HTMLDivElement | null>(null)
   const capturePreviewDialogRef = useRef<HTMLDialogElement | null>(null)
   const captureGalleryStripRef = useRef<HTMLDivElement | null>(null)
+  const captureImportInputRef = useRef<HTMLInputElement>(null)
+  const captureVideoInputRef = useRef<HTMLInputElement>(null)
+  const freezeVideoFileRef = useRef<File | null>(null)
+  const [freezeVideoMeta, setFreezeVideoMeta] = useState<{ name: string; duration: number } | null>(null)
+  const [freezeSeekSec, setFreezeSeekSec] = useState(0)
+  const [capturePairScore, setCapturePairScore] = useState<number | null>(null)
+  const capturePairReqRef = useRef(0)
 
   const menuDrawerId = useId()
   const drawerTitleId = useId()
@@ -784,12 +928,15 @@ export default function ResearchOverview({
   const drawerImagePickId = useId()
   const aiBaseUrlId = useId()
   const aiModelId = useId()
+  const aiOutlineModelId = useId()
+  const aiWorkspaceModelId = useId()
   const aiKeyId = useId()
   const drawerNotesId = useId()
   const drawerImgUrlInputId = useId()
   const drawerStreamUrlInputId = useId()
   const drawerChatFieldId = useId()
   const drawerAttachFilterId = useId()
+  const workbenchGenreSelectId = useId()
   const menuFabRef = useRef<HTMLButtonElement>(null)
   const drawerCloseRef = useRef<HTMLButtonElement>(null)
   const importFileInputRef = useRef<HTMLInputElement>(null)
@@ -803,6 +950,11 @@ export default function ResearchOverview({
   const drawerImgObjUrlRef = useRef<string | null>(null)
   const workspaceSubscribersRef = useRef(new Set<(snap: OverviewWorkspaceSnapshot) => void>())
   const workspaceNotifyTimerRef = useRef<number | undefined>(undefined)
+  const workspaceHostSurfaceRef = useRef(workspaceHostSurface)
+
+  useEffect(() => {
+    workspaceHostSurfaceRef.current = workspaceHostSurface
+  }, [workspaceHostSurface])
 
   const tabsRef = useRef(tabs)
   const activeTabIdRef = useRef(activeTabId)
@@ -844,14 +996,32 @@ export default function ResearchOverview({
 
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? tabs[0], [tabs, activeTabId])
   const sections = useMemo(() => activeTab?.sections ?? [], [activeTab])
+  const documentMarkdown = useMemo(() => workspaceSectionsToMarkdown(sections), [sections])
   const researchPrompt = activeTab?.researchPrompt ?? ''
   const ingestQuery = activeTab?.ingestQuery ?? ''
-  const ingestKind: IngestKind = activeTab?.ingestKind ?? 'transcript'
+  const ingestKind: IngestKind = activeTab?.ingestKind ?? 'notes'
   const tabTodos = activeTab?.todos ?? []
   const paperGenreMode: PaperGenreMode = activeTab?.paperGenreMode ?? 'auto'
   const paperGenreHintLabel = useMemo(
     () => PAPER_GENRE_SELECT_OPTIONS.find((o) => o.value === paperAutoHintGenre)?.label ?? paperAutoHintGenre,
     [paperAutoHintGenre],
+  )
+  const paperGenreSelectChildren = useMemo(
+    () => (
+      <>
+        <option value="auto">{PAPER_GENRE_SELECT_OPTIONS[0]?.label ?? 'Auto'}</option>
+        {PAPER_GENRE_UI_GROUPS.map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {group.options.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </>
+    ),
+    [],
   )
   const showIngestKindTabs = looksLikeHttpUrl(ingestQuery)
 
@@ -948,10 +1118,14 @@ export default function ResearchOverview({
     const cfg: SnapshotAiConfig = {}
     const bu = drawerAi.baseUrl.trim()
     const mn = drawerAi.modelName.trim()
+    const om = drawerAi.outlineModel.trim()
+    const wm = drawerAi.workspaceModel.trim()
     if (bu) cfg.baseUrl = bu
     if (mn) cfg.modelName = mn
+    if (om) cfg.outlineModel = om
+    if (wm) cfg.workspaceModel = wm
     aiPublicConfigRef.current = cfg
-  }, [drawerAi.baseUrl, drawerAi.modelName])
+  }, [drawerAi.baseUrl, drawerAi.modelName, drawerAi.outlineModel, drawerAi.workspaceModel])
 
   useEffect(() => {
     return () => {
@@ -1253,14 +1427,14 @@ export default function ResearchOverview({
   )
 
   const applyImportedSnapshot = useCallback(
-    (snap: OverviewWorkspaceSnapshot, heroSource?: 'file' | 'share') => {
+    (snap: OverviewWorkspaceSnapshot, heroSource?: 'file' | 'share' | 'agent') => {
       setTabs(
         snap.tabs.map((t) => ({
           id: t.id,
           sections: t.sections,
           researchPrompt: t.researchPrompt,
           ingestQuery: t.ingestQuery,
-          ingestKind: t.ingestKind ?? 'transcript',
+          ingestKind: t.ingestKind ?? 'notes',
           lastSeedPrompt: t.lastSeedPrompt,
           todos: t.todos,
           paperGenreMode: t.paperGenreMode ?? 'auto',
@@ -1275,6 +1449,8 @@ export default function ResearchOverview({
           ...prev,
           baseUrl: ac.baseUrl ?? '',
           modelName: ac.modelName ?? '',
+          outlineModel: ac.outlineModel ?? '',
+          workspaceModel: ac.workspaceModel ?? '',
         }))
       }
       setActiveTabId(snap.activeTabId)
@@ -1284,6 +1460,12 @@ export default function ResearchOverview({
         pushHeroBadge({ mergePrefix: 'import-file', label: 'Workspace imported', tone: 'success' })
       } else if (heroSource === 'share') {
         pushHeroBadge({ mergePrefix: 'import-share', label: 'Share link loaded', tone: 'success' })
+      } else if (heroSource === 'agent') {
+        pushHeroBadge({
+          mergePrefix: 'import-agent',
+          label: 'Collaborator merged workspace',
+          tone: 'info',
+        })
       }
     },
     [pushHeroBadge, setActiveTabId],
@@ -1306,6 +1488,17 @@ export default function ResearchOverview({
         /* ignore subscriber failures */
       }
     })
+    if (workspaceHostSurfaceRef.current) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(OVERVIEW_WORKSPACE_SNAPSHOT_EVENT, {
+            detail: { snapshot: snap },
+          }),
+        )
+      } catch {
+        /* ignore */
+      }
+    }
   }, [onWorkspaceChange])
 
   useEffect(() => {
@@ -1322,10 +1515,10 @@ export default function ResearchOverview({
         workspaceNotifyTimerRef.current = undefined
       }
     }
-  }, [tabs, activeTabId, shellContext, drawerQuickNotes, attachments, drawerAi.baseUrl, drawerAi.modelName, flushWorkspaceNotify])
+  }, [tabs, activeTabId, shellContext, drawerQuickNotes, attachments, drawerAi, flushWorkspaceNotify])
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return
+    if (!workspaceHostSurface) return
     const api: OverviewWorkspaceDevApi = {
       getSnapshot: () =>
         serializeWorkspace({
@@ -1336,9 +1529,9 @@ export default function ResearchOverview({
           attachments: attachmentsRef.current,
           aiConfig: aiPublicConfigRef.current,
         }),
-      loadSnapshot: (snap: unknown) => {
+      loadSnapshot: (snap: unknown, opts?: OverviewWorkspaceLoadOptions) => {
         const parsed = parseWorkspaceSnapshot(snap)
-        applyImportedSnapshot(parsed, 'file')
+        applyImportedSnapshot(parsed, opts?.source === 'agent' ? 'agent' : 'file')
         return parsed
       },
       subscribe: (listener) => {
@@ -1352,7 +1545,21 @@ export default function ResearchOverview({
         delete window.__OVERVIEW_WORKSPACE__
       }
     }
-  }, [applyImportedSnapshot])
+  }, [applyImportedSnapshot, workspaceHostSurface])
+
+  const persistWorkspaceBridgeEnabled = useCallback(
+    (next: boolean) => {
+      if (import.meta.env.DEV || viteExposeWorkspaceApi) return
+      try {
+        if (next) sessionStorage.setItem(OVERVIEW_WORKSPACE_BRIDGE_SESSION_KEY, '1')
+        else sessionStorage.removeItem(OVERVIEW_WORKSPACE_BRIDGE_SESSION_KEY)
+      } catch {
+        /* ignore */
+      }
+      setWorkspaceBridgeEnabled(next)
+    },
+    [viteExposeWorkspaceApi],
+  )
 
   const runWorkspaceJsonExport = useCallback(() => {
     const snap = serializeWorkspace({
@@ -1517,6 +1724,8 @@ export default function ResearchOverview({
         JSON.stringify({
           baseUrl: drawerAi.baseUrl.trim(),
           modelName: drawerAi.modelName.trim(),
+          outlineModel: drawerAi.outlineModel.trim(),
+          workspaceModel: drawerAi.workspaceModel.trim(),
           apiKey: drawerAi.apiKey,
         }),
       )
@@ -1524,7 +1733,7 @@ export default function ResearchOverview({
     } catch {
       window.alert('Could not save AI settings to session storage.')
     }
-  }, [drawerAi.apiKey, drawerAi.baseUrl, drawerAi.modelName])
+  }, [drawerAi.apiKey, drawerAi.baseUrl, drawerAi.modelName, drawerAi.outlineModel, drawerAi.workspaceModel])
 
   const clearDrawerAiConfig = useCallback(() => {
     try {
@@ -1532,7 +1741,7 @@ export default function ResearchOverview({
     } catch {
       /* ignore */
     }
-    setDrawerAi({ baseUrl: '', modelName: '', apiKey: '', linked: false })
+    setDrawerAi({ baseUrl: '', modelName: '', outlineModel: '', workspaceModel: '', apiKey: '', linked: false })
   }, [])
 
   const revokeDrawerImgObjectUrl = useCallback(() => {
@@ -1588,6 +1797,15 @@ export default function ResearchOverview({
     setDrawerChatInput('')
   }, [drawerChatInput])
 
+  const attachCaptureAnalysis = useCallback(async (id: string, dataUrl: string) => {
+    try {
+      const analysis = await analyzeImageDataUrl(dataUrl)
+      setCaptureGallery((prev) => prev.map((x) => (x.id === id ? { ...x, analysis } : x)))
+    } catch {
+      /* optional */
+    }
+  }, [])
+
   /**
    * Renders a target element to PNG via `html-to-image` (dynamic import). Uses full
    * `scrollWidth` × `scrollHeight`, relaxes root overflow during capture, and always
@@ -1596,7 +1814,7 @@ export default function ResearchOverview({
   const runSnapshot = useCallback(
     async (
       target: HTMLElement | null,
-      meta: { fileName: string; galleryLabel: string; download: boolean },
+      meta: { fileName: string; galleryLabel: string; download: boolean; kind?: CaptureGalleryItem['kind'] },
     ) => {
       if (!target) {
         setCaptureStatus({ text: 'No capture target found.', isError: true })
@@ -1648,8 +1866,10 @@ export default function ResearchOverview({
           label: meta.galleryLabel,
           dataUrl,
           createdAt: new Date().toISOString(),
+          kind: meta.kind,
         }
         setCaptureGallery((prev) => [entry, ...prev])
+        void attachCaptureAnalysis(entry.id, dataUrl)
         pushHeroBadge({ mergePrefix: 'capture', label: 'Capture saved', tone: 'success' })
 
         if (meta.download) {
@@ -1679,7 +1899,7 @@ export default function ResearchOverview({
         setCaptureBusy(false)
       }
     },
-    [pushHeroBadge],
+    [attachCaptureAnalysis, pushHeroBadge],
   )
 
   const runShellSnapshot = useCallback(async () => {
@@ -1699,6 +1919,7 @@ export default function ResearchOverview({
       fileName: 'overview-shell.png',
       galleryLabel: 'Workspace shell',
       download: snapshotDownloadPng,
+      kind: 'shell',
     })
   }, [runSnapshot, snapshotDownloadPng])
 
@@ -1707,6 +1928,7 @@ export default function ResearchOverview({
       fileName: 'overview-theme-split.png',
       galleryLabel: 'Day / Night split preview',
       download: snapshotDownloadPng,
+      kind: 'split',
     })
   }, [runSnapshot, snapshotDownloadPng])
 
@@ -1725,13 +1947,133 @@ export default function ResearchOverview({
     if (!window.confirm('Remove all captures from this session’s gallery?')) return
     setCaptureGallery([])
     setCapturePreview(null)
+    freezeVideoFileRef.current = null
+    setFreezeVideoMeta(null)
+    setFreezeSeekSec(0)
     capturePreviewDialogRef.current?.close()
   }, [])
 
-  const openCapturePreview = useCallback((item: CaptureGalleryItem) => {
-    setCapturePreview(item)
-    queueMicrotask(() => capturePreviewDialogRef.current?.showModal())
+  const openCapturePreview = useCallback(
+    (item: CaptureGalleryItem) => {
+      const my = ++capturePairReqRef.current
+      setCapturePreview(item)
+      setCapturePairScore(null)
+      queueMicrotask(() => capturePreviewDialogRef.current?.showModal())
+      const idx = captureGallery.findIndex((x) => x.id === item.id)
+      const older = idx >= 0 && idx + 1 < captureGallery.length ? captureGallery[idx + 1] : null
+      if (!older) return
+      void (async () => {
+        try {
+          const [h0, h1] = await Promise.all([lumaHistogram64(item.dataUrl), lumaHistogram64(older.dataUrl)])
+          if (capturePairReqRef.current !== my) return
+          setCapturePairScore(histogramDistance(h0, h1))
+        } catch {
+          if (capturePairReqRef.current === my) setCapturePairScore(null)
+        }
+      })()
+    },
+    [captureGallery],
+  )
+
+  const onCaptureImportImage = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0]
+      e.target.value = ''
+      if (!f || !f.type.startsWith('image/')) {
+        setCaptureStatus({ text: 'Pick an image file.', isError: true })
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = () => {
+        const dataUrl = reader.result
+        if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return
+        const entry: CaptureGalleryItem = {
+          id: crypto.randomUUID(),
+          label: `Import · ${f.name}`,
+          dataUrl,
+          createdAt: new Date().toISOString(),
+          kind: 'import',
+        }
+        setCaptureGallery((prev) => [entry, ...prev])
+        void attachCaptureAnalysis(entry.id, dataUrl)
+        pushHeroBadge({ mergePrefix: 'capture', label: 'Image in gallery', tone: 'success' })
+        setCaptureStatus({ text: 'Image added to capture gallery (EXIF + luma scan).', isError: false })
+      }
+      reader.onerror = () => setCaptureStatus({ text: 'Could not read image file.', isError: true })
+      reader.readAsDataURL(f)
+    },
+    [attachCaptureAnalysis, pushHeroBadge],
+  )
+
+  const onCapturePickVideo = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f || !f.type.startsWith('video/')) {
+      setCaptureStatus({ text: 'Pick a local video file.', isError: true })
+      return
+    }
+    freezeVideoFileRef.current = f
+    const url = URL.createObjectURL(f)
+    const v = document.createElement('video')
+    v.preload = 'metadata'
+    v.muted = true
+    v.src = url
+    const cleanup = () => URL.revokeObjectURL(url)
+    v.addEventListener(
+      'loadedmetadata',
+      () => {
+        const d = Number.isFinite(v.duration) ? v.duration : 0
+        setFreezeVideoMeta({ name: f.name, duration: d })
+        setFreezeSeekSec(0)
+        cleanup()
+      },
+      { once: true },
+    )
+    v.addEventListener(
+      'error',
+      () => {
+        setCaptureStatus({ text: 'Could not read video metadata.', isError: true })
+        cleanup()
+      },
+      { once: true },
+    )
   }, [])
+
+  const onFreezeGrabFrame = useCallback(async () => {
+    const f = freezeVideoFileRef.current
+    if (!f) {
+      setCaptureStatus({ text: 'Choose a video file first.', isError: true })
+      return
+    }
+    setCaptureBusy(true)
+    setCaptureStatus({ text: 'Grabbing frame…', isError: false })
+    try {
+      const { dataUrl, timeSec } = await grabVideoFrameDataUrl(f, freezeSeekSec)
+      const entry: CaptureGalleryItem = {
+        id: crypto.randomUUID(),
+        label: `Freeze · ${f.name} @ ${timeSec.toFixed(2)}s`,
+        dataUrl,
+        createdAt: new Date().toISOString(),
+        kind: 'video-freeze',
+      }
+      setCaptureGallery((prev) => [entry, ...prev])
+      void attachCaptureAnalysis(entry.id, dataUrl)
+      pushHeroBadge({ mergePrefix: 'capture', label: 'Frame captured', tone: 'success' })
+      setCaptureStatus({ text: 'Freeze frame added to gallery.', isError: false })
+    } catch (err) {
+      setCaptureStatus({
+        text: err instanceof Error ? err.message : 'Frame grab failed.',
+        isError: true,
+      })
+    } finally {
+      setCaptureBusy(false)
+    }
+  }, [attachCaptureAnalysis, freezeSeekSec, pushHeroBadge])
+
+  const capturePreviewResolved = useMemo(() => {
+    if (!capturePreview) return null
+    return captureGallery.find((x) => x.id === capturePreview.id) ?? capturePreview
+  }, [capturePreview, captureGallery])
 
   useEffect(() => {
     const el = captureGalleryStripRef.current
@@ -1814,7 +2156,19 @@ export default function ResearchOverview({
       try {
         const handler = onAiIterate ?? stubAiIterate
         const workspaceContext = shellContextRef.current.trim() || undefined
-        const result = await handler({ kind, section, pathTitles, workspaceContext })
+        const tabMeta = tabsRef.current.find((t) => t.id === tabId)
+        const genreMode = tabMeta?.paperGenreMode ?? 'auto'
+        const rp = tabMeta?.researchPrompt ?? ''
+        const wsCombine = shellContextRef.current.trim()
+        const resolvedPaperGenre: PaperGenre =
+          genreMode === 'auto' ? detectPaperGenre(`${rp} ${wsCombine}`) : genreMode
+        const result = await handler({
+          kind,
+          section,
+          pathTitles,
+          workspaceContext,
+          paperGenre: resolvedPaperGenre,
+        })
         if (!result) {
           setTabs((prev) =>
             prev.map((t) =>
@@ -2008,6 +2362,23 @@ export default function ResearchOverview({
     [activeTabId],
   )
 
+  const mergeSourceContextIntoPrompt = useCallback(() => {
+    const ws = shellContext.trim()
+    const iq = ingestQuery.trim()
+    if (!ws && !iq) return
+    const blocks: string[] = []
+    if (ws) blocks.push(`## Workspace context\n${ws}`)
+    if (iq) blocks.push(`## Source / search / ingest field\n${iq}`)
+    const next = blocks.join('\n\n')
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id !== activeTabId) return t
+        const rp = t.researchPrompt.trim()
+        return { ...t, researchPrompt: rp ? `${rp}\n\n${next}` : next }
+      }),
+    )
+  }, [activeTabId, ingestQuery, shellContext])
+
   const applyPaperScaffold = useCallback(() => {
     const tabId = activeTabIdRef.current
     const snap = tabsRef.current.find((t) => t.id === tabId)
@@ -2021,7 +2392,7 @@ export default function ResearchOverview({
     if (root.children.length > 0) {
       if (
         !window.confirm(
-          'Replace existing top-level sections under the article with this paper scaffold?',
+          'Replace existing top-level sections under the article with this outline scaffold?',
         )
       ) {
         return
@@ -2041,7 +2412,7 @@ export default function ResearchOverview({
     const raw = ingestQueryRef.current.trim()
     if (!raw) return
     const tabId = activeTabIdRef.current
-    const kind = tabsRef.current.find((t) => t.id === tabId)?.ingestKind ?? 'transcript'
+    const kind = tabsRef.current.find((t) => t.id === tabId)?.ingestKind ?? 'notes'
 
     if (looksLikeHttpUrl(raw)) {
       const req: TranscriptIngestRequest = { url: raw, tabId, kind }
@@ -2049,8 +2420,36 @@ export default function ResearchOverview({
         onTranscriptIngest(req)
         setIngestStubFeedback(null)
       } else {
-        const scope = INGEST_KIND_TABS.find((x) => x.kind === kind)?.label ?? kind
-        setIngestStubFeedback(`Queued ${scope.toLowerCase()} ingest for ${raw}`)
+        const ytId = parseYouTubeVideoId(raw)
+        if (ytId) {
+          const prevPrompt = tabsRef.current.find((t) => t.id === tabId)?.researchPrompt?.trim() ?? ''
+          setIngestStubFeedback('Loading clip title…')
+          void (async () => {
+            const meta = await fetchYoutubeOEmbed(raw)
+            const seed =
+              meta?.title != null
+                ? `Video: ${meta.title}${meta.author_name ? ` (${meta.author_name})` : ''}`
+                : `YouTube video ${ytId}`
+            setTabs((prev) =>
+              prev.map((t) => {
+                if (t.id !== tabId) return t
+                if (t.researchPrompt.trim()) return t
+                return { ...t, researchPrompt: seed }
+              }),
+            )
+            const short = (s: string) => (s.length > 96 ? `${s.slice(0, 93)}…` : s)
+            setIngestStubFeedback(
+              meta?.title
+                ? prevPrompt
+                  ? `Loaded “${short(meta.title)}”. Topic line unchanged — use Merge sources → prompt to fold the clip into context.`
+                  : `Loaded “${short(meta.title)}” — topic line set for outline seed; open Transcript dock for the player.`
+                : `Clip ${ytId} — topic line set for seeding; open Transcript dock for the player.`,
+            )
+          })()
+        } else {
+          const scope = INGEST_KIND_TABS.find((x) => x.kind === kind)?.label ?? kind
+          setIngestStubFeedback(`Queued ${scope.toLowerCase()} ingest for ${raw} (wire onTranscriptIngest in App for a pipeline).`)
+        }
       }
       return
     }
@@ -2062,6 +2461,19 @@ export default function ResearchOverview({
       setIngestStubFeedback(`Search: ${raw}`)
     }
   }, [onTranscriptIngest, onCorpusSearch])
+
+  const prevHeroIngestRef = useRef<{ tabId: string; kind: IngestKind } | null>(null)
+  useEffect(() => {
+    const prev = prevHeroIngestRef.current
+    const next = { tabId: activeTabId, kind: ingestKind }
+    prevHeroIngestRef.current = next
+    if (prev === null) return
+    if (prev.tabId !== activeTabId) return
+    if (prev.kind === ingestKind) return
+    const raw = ingestQueryRef.current.trim()
+    if (!raw || !looksLikeHttpUrl(raw)) return
+    submitIngestOrSearch()
+  }, [activeTabId, ingestKind, submitIngestOrSearch])
 
   const updateField = useCallback(
     (id: string, field: 'title' | 'body', value: string) => {
@@ -2396,7 +2808,8 @@ export default function ResearchOverview({
           </summary>
           <section className="ro-capture-gallery" aria-label="Session capture gallery">
             <p className="ro-capture-gallery-hint muted">
-              Session only — scroll horizontally. Hold Shift and use the mouse wheel to scroll sideways.
+              Session only — each item gets EXIF + luma scan when possible. Scroll horizontally; hold Shift and use the
+              mouse wheel to scroll sideways.
             </p>
             <div ref={captureGalleryStripRef} className="ro-capture-gallery-strip">
               {captureGallery.map((item) => (
@@ -2535,6 +2948,7 @@ export default function ResearchOverview({
             </div>
           </div>
           <div className="ro-ingest-stack">
+            <LiveHexIngestThumbnails onOpenVideoLab={onOpenVideoLab} />
             <div className="ro-ingest-field">
               <input
                 type="text"
@@ -2582,6 +2996,11 @@ export default function ResearchOverview({
                 })}
               </div>
             ) : null}
+            {showIngestKindTabs && ingestKind === 'images' ? (
+              <p className="ro-ingest-capture-hint muted">
+                For EXIF, luma, and freeze frames from local video, use the menu → Capture (session gallery).
+              </p>
+            ) : null}
           </div>
         </div>
         {ingestStubFeedback ? (
@@ -2589,12 +3008,67 @@ export default function ResearchOverview({
             {ingestStubFeedback}
           </p>
         ) : null}
-        <p className="ro-lead muted">
-          Wikipedia-style hierarchy: article → sections → subsections. Type a topic in the line above — after a short
-          pause it seeds the outline; press Enter for an immediate run; leaving the field also commits when the text
-          changed. Uses an offline stub until you wire onAiIterate. Expand / Refine on each card still call the same
-          hook.
+        <div className="ro-workbench-toolbar" role="toolbar" aria-label="Workbench layout">
+          <div className="ro-workbench-cluster">
+            <div className="ro-workbench-segmented">
+              {(
+                [
+                  ['outline', 'Outline'],
+                  ['split', 'Split · live doc'],
+                  ['document', 'Document'],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`ro-workbench-tab${workbenchView === v ? ' is-active' : ''}`}
+                  aria-pressed={workbenchView === v}
+                  onClick={() => setWorkbenchView(v)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="ro-workbench-genre-slot">
+              <label className="ro-genre-label ro-genre-label--workbench" htmlFor={workbenchGenreSelectId}>
+                <span className="ro-genre-label-text">Genre</span>
+                <select
+                  id={workbenchGenreSelectId}
+                  className="ro-genre-select ro-genre-select--workbench"
+                  aria-label="Genre and outline scaffold"
+                  value={paperGenreMode}
+                  disabled={Boolean(aiBusyId)}
+                  onChange={(e) => setPaperGenreMode(e.target.value as PaperGenreMode)}
+                >
+                  {paperGenreSelectChildren}
+                </select>
+              </label>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="ro-btn ro-btn-ghost ro-workbench-merge"
+            onClick={() => mergeSourceContextIntoPrompt()}
+          >
+            Merge sources → prompt
+          </button>
+        </div>
+        <p className="ro-collab-strip muted" role="note">
+          Collaborative models: notes assistant →{' '}
+          <strong>{drawerAi.workspaceModel.trim() || drawerAi.modelName.trim() || 'default'}</strong>; outline
+          AI → <strong>{drawerAi.outlineModel.trim() || drawerAi.modelName.trim() || 'default'}</strong>
+          <span className="ro-collab-strip-hint"> (configure in Menu → AI linking)</span>.
         </p>
+        <p className="ro-lead muted">
+          Build a full research page from a topic line, pasted transcript, book quotes, corpus search text, or workspace
+          notes. The outline seeds after a pause (or press Enter). Use <strong>Document</strong> for a reading-room view,
+          <strong>Split</strong> to edit cards beside a live rendered paper, and <strong>Merge sources → prompt</strong> to
+          fold context into the topic line before seeding.
+        </p>
+        <TranscriptCompareHero
+          linkedIngestQuery={ingestQuery}
+          hidden={workbenchView === 'document'}
+        />
       </header>
 
       {aiError ? (
@@ -2603,7 +3077,7 @@ export default function ResearchOverview({
         </div>
       ) : null}
 
-      <div className="ro-layout">
+      <div className={workbenchView === 'split' ? 'ro-layout ro-layout--split' : 'ro-layout'}>
         <nav className="ro-toc" aria-labelledby="ro-toc-heading">
           <p id="ro-toc-heading" className="ro-toc-title">
             Outline
@@ -2652,21 +3126,56 @@ export default function ResearchOverview({
           </button>
         </nav>
 
-        <main className="ro-main">
-          {sections.map((s) => (
-            <SectionBlock
-              key={s.id}
-              section={s}
-              depth={0}
-              aiBusyId={aiBusyId}
-              onChangeTitle={(id, v) => updateField(id, 'title', v)}
-              onChangeBody={(id, v) => updateField(id, 'body', v)}
-              onAddChild={appendChild}
-              onDelete={deleteSection}
-              onAi={runExpandOrRefine}
-            />
-          ))}
-        </main>
+        {workbenchView === 'document' ? (
+          <main className="ro-main ro-document-reading" aria-label="Compiled research document">
+            <article className="ro-md-reading">
+              <ResearchMarkdownPreview markdown={documentMarkdown} />
+            </article>
+            <p className="ro-document-reading-hint muted">
+              Reading view — switch to Outline or Split to edit section cards.
+            </p>
+          </main>
+        ) : workbenchView === 'split' ? (
+          <div className="ro-split-pair">
+            <main className="ro-main">
+              {sections.map((s) => (
+                <SectionBlock
+                  key={s.id}
+                  section={s}
+                  depth={0}
+                  aiBusyId={aiBusyId}
+                  onChangeTitle={(id, v) => updateField(id, 'title', v)}
+                  onChangeBody={(id, v) => updateField(id, 'body', v)}
+                  onAddChild={appendChild}
+                  onDelete={deleteSection}
+                  onAi={runExpandOrRefine}
+                />
+              ))}
+            </main>
+            <aside className="ro-live-doc-pane" aria-label="Live rendered document">
+              <p className="ro-live-doc-title">Live document</p>
+              <div className="ro-md-reading">
+                <ResearchMarkdownPreview markdown={documentMarkdown} />
+              </div>
+            </aside>
+          </div>
+        ) : (
+          <main className="ro-main">
+            {sections.map((s) => (
+              <SectionBlock
+                key={s.id}
+                section={s}
+                depth={0}
+                aiBusyId={aiBusyId}
+                onChangeTitle={(id, v) => updateField(id, 'title', v)}
+                onChangeBody={(id, v) => updateField(id, 'body', v)}
+                onAddChild={appendChild}
+                onDelete={deleteSection}
+                onAi={runExpandOrRefine}
+              />
+            ))}
+          </main>
+        )}
       </div>
 
       <button
@@ -2720,23 +3229,19 @@ export default function ResearchOverview({
                 open={drawerDetailsOpen.paperGenre}
                 onToggle={(e) => persistDrawerDetail('paperGenre', e.currentTarget.open)}
               >
-                <summary className="ro-drawer-section-title">Paper genre</summary>
+                <summary className="ro-drawer-section-title">Genre & story format</summary>
                 <div className="ro-drawer-section-body">
                   <div className="ro-drawer-genre-row ro-genre-bar">
                     <label className="ro-genre-label">
                       <span className="ro-genre-label-text">Genre</span>
                       <select
                         className="ro-genre-select"
-                        aria-label="Paper scaffold genre"
+                        aria-label="Genre and outline scaffold"
                         value={paperGenreMode}
                         disabled={Boolean(aiBusyId)}
                         onChange={(e) => setPaperGenreMode(e.target.value as PaperGenreMode)}
                       >
-                        {PAPER_GENRE_SELECT_OPTIONS.map(({ value, label }) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
+                        {paperGenreSelectChildren}
                       </select>
                     </label>
                     {paperGenreMode === 'auto' ? (
@@ -2747,12 +3252,36 @@ export default function ResearchOverview({
                     <button
                       type="button"
                       className="ro-btn ro-btn-ghost ro-genre-apply"
-                      aria-label="Apply paper scaffold"
+                      aria-label="Apply outline scaffold from selected genre"
                       disabled={Boolean(aiBusyId)}
                       onClick={() => applyPaperScaffold()}
                     >
-                      Apply paper scaffold
+                      Apply scaffold
                     </button>
+                  </div>
+                  <div className="ro-genre-story-lens">
+                    <p className="muted ro-genre-story-lead">
+                      Genre scaffolds here follow a linguistics-first through-line: treat lyrics as timed, repetitive
+                      discourse; pair corpus-visible features (prosody proxies, repetition, register) with LM surprisal
+                      where helpful; slice history by explicit decade/genre bins; and flag where rhythm claims require a
+                      MIDI or audio alignment subset rather than text alone.
+                    </p>
+                    <details
+                      className="ro-drawer-nested ro-genre-lens-details"
+                      open={drawerDetailsOpen.paperGenreLens}
+                      onToggle={(e) => persistDrawerDetail('paperGenreLens', e.currentTarget.open)}
+                    >
+                      <summary className="ro-drawer-item-summary">Integrated pillars (lyrics × linguistics)</summary>
+                      <ul className="ro-genre-pillar-list muted">
+                        {GENRE_LENS_LYRICS_LINGUISTICS_PILLARS.map((p) => (
+                          <li key={p.title}>
+                            <span className="ro-genre-pillar-title">{p.title}</span>
+                            {p.text}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                    <p className="muted ro-genre-cli-sync">{GENRE_STORY_FORMAT_CLI_SYNC_NOTE}</p>
                   </div>
                 </div>
               </details>
@@ -2786,6 +3315,28 @@ export default function ResearchOverview({
                         Import workspace…
                         <span className="ro-drawer-item-hint muted">JSON</span>
                       </button>
+                    </li>
+                    <li>
+                      <label className="ro-drawer-checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={workspaceHostSurface}
+                          disabled={import.meta.env.DEV || viteExposeWorkspaceApi}
+                          onChange={(e) => persistWorkspaceBridgeEnabled(e.target.checked)}
+                        />
+                        <span>
+                          {import.meta.env.DEV
+                            ? 'Agent workspace API (always on in dev)'
+                            : viteExposeWorkspaceApi
+                              ? 'Agent workspace API (on via VITE_EXPOSE_WORKSPACE_API)'
+                              : 'Expose agent workspace API (this tab)'}
+                        </span>
+                      </label>
+                      <p className="ro-drawer-bridge-hint muted">
+                        {import.meta.env.DEV
+                          ? 'window.__OVERVIEW_WORKSPACE__ and overview-workspace-snapshot events after saves.'
+                          : 'External tools subscribe for edits and call loadSnapshot to merge; turn off to detach.'}
+                      </p>
                     </li>
                     <li>
                       <details
@@ -2975,6 +3526,34 @@ export default function ResearchOverview({
                     />
                   </div>
                   <div className="ro-drawer-field">
+                    <label className="ro-drawer-label" htmlFor={aiOutlineModelId}>
+                      Outline AI model (optional)
+                    </label>
+                    <input
+                      id={aiOutlineModelId}
+                      type="text"
+                      className="ro-drawer-input"
+                      placeholder="Seed / expand / refine — leave blank to use model name above"
+                      autoComplete="off"
+                      value={drawerAi.outlineModel}
+                      onChange={(e) => setDrawerAi((p) => ({ ...p, outlineModel: e.target.value }))}
+                    />
+                  </div>
+                  <div className="ro-drawer-field">
+                    <label className="ro-drawer-label" htmlFor={aiWorkspaceModelId}>
+                      Workspace assistant model (optional)
+                    </label>
+                    <input
+                      id={aiWorkspaceModelId}
+                      type="text"
+                      className="ro-drawer-input"
+                      placeholder="Ctrl+Enter in notes — leave blank to use model name above"
+                      autoComplete="off"
+                      value={drawerAi.workspaceModel}
+                      onChange={(e) => setDrawerAi((p) => ({ ...p, workspaceModel: e.target.value }))}
+                    />
+                  </div>
+                  <div className="ro-drawer-field">
                     <label className="ro-drawer-label" htmlFor={aiKeyId}>
                       API key (optional)
                     </label>
@@ -3116,7 +3695,7 @@ export default function ResearchOverview({
                             className="ro-drawer-video-iframe"
                             src={youtubeNoCookieEmbedUrl(drawerStreamVideoId)}
                             title="YouTube video preview"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
                           />
                         ) : (
@@ -3181,9 +3760,27 @@ export default function ResearchOverview({
                 <div className="ro-drawer-section-body">
                   <p className="ro-drawer-warn muted" role="note">
                     Renders a PNG client-side via{' '}
-                    <code className="ro-drawer-code">html-to-image</code> (dynamic chunk). Cross-origin
-                    images may be skipped by the browser.
+                    <code className="ro-drawer-code">html-to-image</code> (dynamic chunk). Cross-origin images may be
+                    skipped. YouTube and other embeds cannot be pixel-sampled here — use a local file for freeze frames.
                   </p>
+                  <input
+                    ref={captureImportInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="ro-drawer-hidden-input"
+                    aria-hidden
+                    tabIndex={-1}
+                    onChange={onCaptureImportImage}
+                  />
+                  <input
+                    ref={captureVideoInputRef}
+                    type="file"
+                    accept="video/*"
+                    className="ro-drawer-hidden-input"
+                    aria-hidden
+                    tabIndex={-1}
+                    onChange={onCapturePickVideo}
+                  />
                   <label className="ro-drawer-checkbox-row">
                     <input
                       type="checkbox"
@@ -3209,6 +3806,58 @@ export default function ResearchOverview({
                     >
                       Snapshot split preview
                     </button>
+                  </div>
+                  <div className="ro-drawer-capture-import">
+                    <p className="muted ro-drawer-capture-import-title">Image and local video</p>
+                    <div className="ro-drawer-capture-actions">
+                      <button
+                        type="button"
+                        className="ro-btn"
+                        disabled={captureBusy}
+                        onClick={() => captureImportInputRef.current?.click()}
+                      >
+                        Import image to gallery
+                      </button>
+                      <button
+                        type="button"
+                        className="ro-btn"
+                        disabled={captureBusy}
+                        onClick={() => captureVideoInputRef.current?.click()}
+                      >
+                        Choose local video…
+                      </button>
+                    </div>
+                    {freezeVideoMeta ? (
+                      <div className="ro-drawer-freeze-row">
+                        <label className="ro-drawer-freeze-label">
+                          <span className="muted">Time (s)</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={Math.max(0.01, freezeVideoMeta.duration || 0.01)}
+                            step={0.01}
+                            value={Math.min(freezeSeekSec, freezeVideoMeta.duration || 0)}
+                            disabled={captureBusy || !freezeVideoMeta.duration}
+                            onChange={(e) => setFreezeSeekSec(Number(e.target.value))}
+                          />
+                          <span className="ro-drawer-freeze-time">{freezeSeekSec.toFixed(2)}s</span>
+                        </label>
+                        <button
+                          type="button"
+                          className="ro-btn ro-btn-accent"
+                          disabled={captureBusy}
+                          onClick={() => void onFreezeGrabFrame()}
+                        >
+                          Grab frame
+                        </button>
+                      </div>
+                    ) : null}
+                    {freezeVideoMeta ? (
+                      <p className="muted ro-drawer-freeze-meta">
+                        {freezeVideoMeta.name}
+                        {freezeVideoMeta.duration ? ` · ${freezeVideoMeta.duration.toFixed(2)}s total` : ''}
+                      </p>
+                    ) : null}
                   </div>
                   {captureStatus ? (
                     <p
@@ -3249,7 +3898,10 @@ export default function ResearchOverview({
       <dialog
         ref={capturePreviewDialogRef}
         className="ro-capture-preview-dialog"
-        onClose={() => setCapturePreview(null)}
+        onClose={() => {
+          setCapturePreview(null)
+          setCapturePairScore(null)
+        }}
         onClick={(e) => {
           if (e.target === capturePreviewDialogRef.current) {
             capturePreviewDialogRef.current?.close()
@@ -3258,24 +3910,30 @@ export default function ResearchOverview({
       >
         <div className="ro-capture-preview-dialog-box" onClick={(e) => e.stopPropagation()}>
           <header className="ro-capture-preview-dialog-header">
-            <h2 className="ro-capture-preview-dialog-title">{capturePreview?.label ?? 'Capture'}</h2>
+            <h2 className="ro-capture-preview-dialog-title">{capturePreviewResolved?.label ?? 'Capture'}</h2>
             <form method="dialog">
               <button type="submit" className="ro-btn ro-btn-ghost">
                 Close
               </button>
             </form>
           </header>
-          {capturePreview ? (
-            <img
-              className="ro-capture-preview-dialog-img"
-              src={capturePreview.dataUrl}
-              alt={capturePreview.label}
-            />
+          {capturePreviewResolved ? (
+            <>
+              <img
+                className="ro-capture-preview-dialog-img"
+                src={capturePreviewResolved.dataUrl}
+                alt={capturePreviewResolved.label}
+              />
+              <CaptureDiscoveryPanel
+                analysis={capturePreviewResolved.analysis}
+                histogramVsOlder={capturePairScore}
+              />
+            </>
           ) : null}
         </div>
       </dialog>
 
-      {onOpenSummary || onOpenPresentation || onOpenSketch ? (
+      {onOpenSummary || onOpenPresentation || onOpenSketch || onOpenSession || onOpenVideoLab ? (
         <footer className="ro-app-footer">
           <div
             className="ro-app-footer-status"
@@ -3361,6 +4019,26 @@ export default function ResearchOverview({
             {onOpenSketch ? (
               <button type="button" className="ro-app-footer-link" onClick={onOpenSketch}>
                 Sketch
+              </button>
+            ) : null}
+            {onOpenSketch && onOpenSession ? (
+              <span className="ro-app-footer-sep" aria-hidden>
+                ·
+              </span>
+            ) : null}
+            {onOpenSession ? (
+              <button type="button" className="ro-app-footer-link" onClick={onOpenSession}>
+                Session
+              </button>
+            ) : null}
+            {onOpenSession && onOpenVideoLab ? (
+              <span className="ro-app-footer-sep" aria-hidden>
+                ·
+              </span>
+            ) : null}
+            {onOpenVideoLab ? (
+              <button type="button" className="ro-app-footer-link" onClick={onOpenVideoLab}>
+                Video lab
               </button>
             ) : null}
           </div>

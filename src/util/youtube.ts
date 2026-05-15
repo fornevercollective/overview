@@ -49,6 +49,15 @@ export function parseYouTubeVideoId(raw: string): string | null {
   return null
 }
 
+/** Strips `{…}` wrappers from pasted share tokens (e.g. `{https://youtube.com/watch?v=…}`). */
+export function stripYouTubePasteDecorators(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^\{/u, '')
+    .replace(/\}$/u, '')
+    .trim()
+}
+
 export function youtubeNoCookieEmbedUrl(videoId: string): string {
   const enc = encodeURIComponent(videoId)
   return `https://www.youtube-nocookie.com/embed/${enc}`

@@ -36,7 +36,7 @@ This section captures **product intent and shipped reality** for contributors an
 
 ### Aspirations vs. notebooks
 
-The UI borrows familiar ideas from **Jupyter / Colab-style** workflows—tabs, ingest fields, markdown with math, and a place to hang automation—but there is **no hosted kernel or cell execution**. The research surface is an **outline of sections** with optional `onAiIterate` wiring (`expand` / `refine` / `seed`); until a host provides that callback, a **local stub** keeps the app fully usable offline. A **real Jupyter bridge** would be a separate integration (not shipped); treating that as explicit scope avoids confusion with the current static SPA.
+The UI borrows familiar ideas from **Jupyter / Colab-style** workflows—tabs, ingest fields, markdown with math, and a place to hang automation—but there is **no hosted kernel or cell execution**. The research surface is an **outline of sections** with **`onAiIterate`** (`expand` / `refine` / `seed`). The default `App` wires **local Ollama** (OpenAI-compatible `/v1/chat/completions`); build with **`VITE_USE_AI_STUB=1`** or omit handlers to use the **deterministic stub** offline. A **real Jupyter bridge** would be a separate integration (not shipped).
 
 ### Presentation mode and Pretext-adjacent goals
 
