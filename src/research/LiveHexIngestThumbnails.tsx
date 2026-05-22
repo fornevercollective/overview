@@ -83,6 +83,7 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
   const [pinnedKey, setPinnedKey] = useState<string | null>(null)
   const [feedPaste, setFeedPaste] = useState('')
   const [roomPaste, setRoomPaste] = useState('')
+  const [roomPasteErr, setRoomPasteErr] = useState<string | null>(null)
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
   const [localPeerId, setLocalPeerId] = useState(() => generatePeerFeedKey())
   const roomLinkStatus = useRoomChannelActivity(activeRoomId, localPeerId)
@@ -181,7 +182,27 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
   const applyRoomFromData = useCallback((data: { room: string; peer?: string }) => {
     setActiveRoomId(data.room)
     if (data.peer) setLocalPeerId(data.peer)
+    setRoomPasteErr(null)
   }, [])
+
+  const goRoomFromPaste = useCallback(async () => {
+    const t = roomPaste.trim()
+    if (!t) {
+      setRoomPasteErr('Paste a room link first.')
+      return
+    }
+    const data = await decodeRoomPaste(t)
+    if (!data) {
+      setRoomPasteErr('Could not read room link — paste the full #vfl-room=… URL or payload.')
+      return
+    }
+    const peer = data.peer ?? generatePeerFeedKey()
+    applyRoomFromData({ room: data.room, peer })
+    const enc = await encodeVflRoomShare({ v: 1, room: data.room, peer })
+    if (enc.ok && typeof window !== 'undefined') {
+      window.history.replaceState(null, '', enc.shareUrl)
+    }
+  }, [roomPaste, applyRoomFromData])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -578,8 +599,23 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
                 className="ro-ingest-live-hex-paste-input"
                 placeholder="#vfl-room=… or full lab URL"
                 value={roomPaste}
-                onChange={(e) => setRoomPaste(e.target.value)}
+                onChange={(e) => {
+                  setRoomPaste(e.target.value)
+                  if (roomPasteErr) setRoomPasteErr(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void goRoomFromPaste()
+                }}
               />
+              <button
+                type="button"
+                className="ro-btn ro-btn-ghost ro-ingest-live-hex-paste-btn"
+                disabled={!roomPaste.trim()}
+                title="Join room from pasted link"
+                onClick={() => void goRoomFromPaste()}
+              >
+                Go
+              </button>
               <button
                 type="button"
                 className="ro-btn ro-btn-ghost ro-ingest-live-hex-paste-btn"
@@ -600,6 +636,11 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
                 Make
               </button>
             </div>
+            {roomPasteErr ? (
+              <p className="ro-ingest-live-hex-menu-hint muted" role="alert">
+                {roomPasteErr}
+              </p>
+            ) : null}
           </div>
           {onOpenVideoLab ? (
             <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
