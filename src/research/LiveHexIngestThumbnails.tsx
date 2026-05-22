@@ -7,7 +7,9 @@ import {
   normalizeFeedKey,
   shiftCanvases,
 } from './liveHexCodec'
+import { RoomLinkStatusLight } from './RoomLinkStatusLight'
 import {
+  decodeRoomPaste,
   decodeVflRoomSharePayload,
   encodeVflRoomShare,
   generatePeerFeedKey,
@@ -17,6 +19,7 @@ import {
   stashPendingRoomPaste,
   VFL_ROOM_HASH_PREFIX,
 } from './vfl-room-share'
+import { useRoomChannelActivity } from './vflRoomLinkStatus'
 
 const LEGACY_HEXCAST_CHANNEL = 'hexcast-stream'
 
@@ -80,7 +83,9 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
   const [pinnedKey, setPinnedKey] = useState<string | null>(null)
   const [feedPaste, setFeedPaste] = useState('')
   const [roomPaste, setRoomPaste] = useState('')
-  const [roomIdFromHash, setRoomIdFromHash] = useState<string | null>(null)
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
+  const [localPeerId, setLocalPeerId] = useState(() => generatePeerFeedKey())
+  const roomLinkStatus = useRoomChannelActivity(activeRoomId, localPeerId)
 
   const displayIdx =
     feedOrder.length === 0 ? 0 : Math.min(Math.max(0, activeIdx), feedOrder.length - 1)
@@ -173,15 +178,33 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
     if (drawMsg) drawStoredFrame(drawMsg)
   }, [feedOrder, displayIdx, pinnedKey, drawStoredFrame])
 
+  const applyRoomFromData = useCallback((data: { room: string; peer?: string }) => {
+    setActiveRoomId(data.room)
+    if (data.peer) setLocalPeerId(data.peer)
+  }, [])
+
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const hash = window.location.hash
-    if (!hash.startsWith(VFL_ROOM_HASH_PREFIX)) return
-    const payload = hash.slice(VFL_ROOM_HASH_PREFIX.length)
-    void decodeVflRoomSharePayload(payload).then((data) => {
-      if (data?.room) setRoomIdFromHash(data.room)
+    const readHash = () => {
+      const hash = window.location.hash
+      if (!hash.startsWith(VFL_ROOM_HASH_PREFIX)) return
+      const payload = hash.slice(VFL_ROOM_HASH_PREFIX.length)
+      void decodeVflRoomSharePayload(payload).then((data) => {
+        if (data) applyRoomFromData(data)
+      })
+    }
+    readHash()
+    window.addEventListener('hashchange', readHash)
+    return () => window.removeEventListener('hashchange', readHash)
+  }, [applyRoomFromData])
+
+  useEffect(() => {
+    const t = roomPaste.trim()
+    if (!t) return
+    void decodeRoomPaste(t).then((data) => {
+      if (data) applyRoomFromData(data)
     })
-  }, [])
+  }, [roomPaste, applyRoomFromData])
 
   useEffect(() => {
     const channels: BroadcastChannel[] = []
@@ -200,7 +223,7 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
       }
     }
 
-    open(liveHexChannelForRoom(roomIdFromHash))
+    open(liveHexChannelForRoom(activeRoomId))
     if (import.meta.env.VITE_RELAY_HEXCAST_STREAM === '1') {
       open(LEGACY_HEXCAST_CHANNEL)
     }
@@ -241,7 +264,7 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
       window.clearInterval(hist)
       if (staleTimer.current !== undefined) window.clearTimeout(staleTimer.current)
     }
-  }, [applyFrame, roomIdFromHash])
+  }, [applyFrame, activeRoomId])
 
   const clearStaleTimer = useCallback(() => {
     if (staleTimer.current !== undefined) {
@@ -544,7 +567,8 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
             />
           </div>
           <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
-            <label className="ro-ingest-live-hex-menu-label" htmlFor="live-room-paste">
+            <label className="ro-ingest-live-hex-menu-label ro-room-link-label" htmlFor="live-room-paste">
+              <RoomLinkStatusLight status={roomLinkStatus} />
               Room link
             </label>
             <div className="ro-ingest-live-hex-paste-row">
@@ -562,12 +586,14 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
                 title="Generate a new room invite link"
                 onClick={() => {
                   void (async () => {
-                    const enc = await encodeVflRoomShare({
-                      v: 1,
-                      room: generateRoomId(),
-                      peer: generatePeerFeedKey(),
-                    })
-                    if (enc.ok) setRoomPaste(enc.shareUrl)
+                    const room = generateRoomId()
+                    const peer = generatePeerFeedKey()
+                    const enc = await encodeVflRoomShare({ v: 1, room, peer })
+                    if (enc.ok) {
+                      setRoomPaste(enc.shareUrl)
+                      setActiveRoomId(room)
+                      setLocalPeerId(peer)
+                    }
                   })()
                 }}
               >
@@ -594,7 +620,7 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
           ) : null}
           <p className="ro-ingest-live-hex-menu-hint muted">
             Room links use random <code className="ro-drawer-code">#vfl-room=</code> hashes. Channel{' '}
-            <code className="ro-drawer-code">{liveHexChannelForRoom(roomIdFromHash)}</code>. Feed:{' '}
+            <code className="ro-drawer-code">{liveHexChannelForRoom(activeRoomId)}</code>. Feed:{' '}
             <strong>{effectiveFeedKey(feedOrder, displayIdx, pinnedKey)}</strong>
           </p>
         </div>

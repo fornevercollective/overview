@@ -1,9 +1,4 @@
-import type {
-  CSSProperties,
-  MouseEvent as ReactMouseEvent,
-  PointerEvent as ReactPointerEvent,
-  RefObject,
-} from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './research.css'
 import {
@@ -14,6 +9,9 @@ import {
 } from './liveHexCodec'
 import { ffmpegCdnStreamUrlForVideoId } from '../util/ffmpegStreamUrl'
 import { useLiveHexRoom } from './liveHexRoom'
+import { RoomLinkStatusLight } from './RoomLinkStatusLight'
+import { VflBumpRail, VflFeedMosaic } from './VflFeedMosaic'
+import { useRoomChannelActivity } from './vflRoomLinkStatus'
 import { consumePendingFeedPaste, consumePendingRoomPaste, liveHexChannelForRoom } from './vfl-room-share'
 import { parseFeedLinkPaste, ytHexFeedKey } from './vfl-feed-paste'
 import {
@@ -42,8 +40,6 @@ const DEFAULT_FEED = '__default__'
 
 const STAGE_PX = 480
 const CAMERA_GRID = 72
-const TRAIL_THUMB = 40
-
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
 
 function formatMediaClock(seconds: number): string {
@@ -124,128 +120,6 @@ function effectiveFeedKey(feedOrder: string[], activeIdx: number, pinnedKey: str
   return at
 }
 
-const BUMP_MOSAIC_COLS = 4
-const BUMP_MOSAIC_ROWS = 7
-const BUMP_TILE_TOPO = (() => {
-  const tiles: { key: string; nx: number; ny: number; i: number; zSlot: number }[] = []
-  const cx = Math.max(1, BUMP_MOSAIC_COLS - 1)
-  const cy = Math.max(1, BUMP_MOSAIC_ROWS - 1)
-  let i = 0
-  for (let r = 0; r < BUMP_MOSAIC_ROWS; r++) {
-    for (let c = 0; c < BUMP_MOSAIC_COLS; c++) {
-      const nx = (c / cx) * 2 - 1
-      const ny = (r / cy) * 2 - 1
-      const dc = Math.hypot(c - (BUMP_MOSAIC_COLS - 1) / 2, r - (BUMP_MOSAIC_ROWS - 1) / 2)
-      const zSlot = dc < 0.95 ? 2 : dc < 1.85 ? 1 : 0
-      tiles.push({ key: `${r}-${c}`, nx, ny, i, zSlot })
-      i++
-    }
-  }
-  return tiles
-})()
-
-function VflBumpRail({
-  framesRef,
-  feedKeys,
-  thumbSeq,
-  offThumbRef,
-}: {
-  framesRef: RefObject<Record<string, HexFrameMsg>>
-  feedKeys: string[]
-  thumbSeq: number
-  offThumbRef: RefObject<HTMLCanvasElement | null>
-}) {
-  const ref = useRef<HTMLElement>(null)
-  const tileDisplayRefs = useRef<(HTMLCanvasElement | null)[]>([])
-
-  useLayoutEffect(() => {
-    const frames = framesRef.current
-    const g = getComputedStyle(document.documentElement)
-    const emptyFill = g.getPropertyValue('--code-bg').trim() || '#f4f4f5'
-    const keys = feedKeys.length > 0 ? feedKeys : [DEFAULT_FEED]
-    let off = offThumbRef.current
-    if (!off && typeof document !== 'undefined') {
-      off = document.createElement('canvas')
-      offThumbRef.current = off
-    }
-    for (const t of BUMP_TILE_TOPO) {
-      const dest = tileDisplayRefs.current[t.i]
-      if (!dest) continue
-      const dctx = dest.getContext('2d')
-      if (!dctx) continue
-      const fk = keys[t.i % keys.length]!
-      const msg = frames?.[fk]
-      if (!msg || !off) {
-        dctx.fillStyle = emptyFill
-        dctx.fillRect(0, 0, TRAIL_THUMB, TRAIL_THUMB)
-        continue
-      }
-      const res = Math.floor(msg.res)
-      const hex = Uint8Array.from(msg.hex)
-      if (hex.length !== res * res) {
-        dctx.fillStyle = emptyFill
-        dctx.fillRect(0, 0, TRAIL_THUMB, TRAIL_THUMB)
-        continue
-      }
-      const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
-      drawHexFrame(dest, off, hex, res, mode, TRAIL_THUMB)
-    }
-  }, [thumbSeq, feedKeys, framesRef, offThumbRef])
-
-  const onMove = (e: ReactMouseEvent<HTMLElement>) => {
-    const el = ref.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    const nx = ((e.clientX - r.left) / Math.max(1, r.width) - 0.5) * 2
-    const ny = ((e.clientY - r.top) / Math.max(1, r.height) - 0.5) * 2
-    el.style.setProperty('--vfl-mx', nx.toFixed(4))
-    el.style.setProperty('--vfl-my', ny.toFixed(4))
-  }
-  const onLeave = () => {
-    ref.current?.style.setProperty('--vfl-mx', '0')
-    ref.current?.style.setProperty('--vfl-my', '0')
-  }
-  return (
-    <aside
-      ref={ref}
-      className="vfl-bump-rail"
-      onMouseMove={onMove}
-      onMouseLeave={onLeave}
-      aria-label="Live snapshots from other feeds in the carousel"
-    >
-      <div
-        className="vfl-bump-mosaic"
-        role="presentation"
-        title="Each tile shows the latest frame from a different feed (peers, YouTube, camera, demos). Pointer moves parallax layers."
-      >
-        {BUMP_TILE_TOPO.map((t) => (
-          <div
-            key={t.key}
-            className="vfl-bump-tile-outer"
-            style={
-              {
-                '--vfl-px': t.nx,
-                '--vfl-py': t.ny,
-                '--vfl-bump-z': t.zSlot,
-              } as CSSProperties
-            }
-            aria-hidden
-          >
-            <canvas
-              ref={(el) => {
-                tileDisplayRefs.current[t.i] = el
-              }}
-              className="vfl-bump-tile vfl-bump-tile--snap"
-              width={TRAIL_THUMB}
-              height={TRAIL_THUMB}
-            />
-          </div>
-        ))}
-      </div>
-    </aside>
-  )
-}
-
 export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [feedOrder, setFeedOrder] = useState<string[]>([DEFAULT_FEED])
   const [activeIdx, setActiveIdx] = useState(0)
@@ -278,6 +152,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [vwallCx, setVwallCx] = useState(() => getVwallGoogleCredentials().cx)
   const [vwallTiles, setVwallTiles] = useState<{ feedKey: string; url: string; title: string }[]>([])
   const vwallImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
+  const [labView, setLabView] = useState<'stage' | 'vwall'>('stage')
+  const [vwallWallLayout, setVwallWallLayout] = useState<'dense' | 'checker'>('dense')
   const [ytFeedId, setYtFeedId] = useState<string | null>(null)
   const [ytStreamErr, setYtStreamErr] = useState<string | null>(null)
 
@@ -497,6 +373,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     roomShareUrl,
     roomErr,
   } = room
+  const roomLinkStatus = useRoomChannelActivity(roomId, peerId)
 
   useLayoutEffect(() => {
     redrawStage()
@@ -1122,6 +999,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
             feedKey: t.feedKey,
             t: performance.now(),
           }
+          ingestRef.current(frame)
           ch.postMessage(frame)
           if (isInRoom) publishHexToRoom(frame)
         } catch {
@@ -1477,6 +1355,43 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                         Thermal
                       </button>
                     </div>
+                    <div
+                      className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block vfl-camera-image-tune"
+                      role="group"
+                      aria-label="Stage image brightness and contrast"
+                    >
+                      <span className="ro-ingest-live-hex-menu-label">Image</span>
+                      <div className="vfl-media-row">
+                        <label className="vfl-media-label" htmlFor="vfl-cam-bri">
+                          Brightness
+                        </label>
+                        <input
+                          id="vfl-cam-bri"
+                          type="range"
+                          min={40}
+                          max={160}
+                          step={1}
+                          value={imageBrightness}
+                          onChange={(e) => setImageBrightness(Number(e.target.value))}
+                        />
+                        <span className="vfl-media-val">{imageBrightness}%</span>
+                      </div>
+                      <div className="vfl-media-row">
+                        <label className="vfl-media-label" htmlFor="vfl-cam-con">
+                          Contrast
+                        </label>
+                        <input
+                          id="vfl-cam-con"
+                          type="range"
+                          min={40}
+                          max={160}
+                          step={1}
+                          value={imageContrast}
+                          onChange={(e) => setImageContrast(Number(e.target.value))}
+                        />
+                        <span className="vfl-media-val">{imageContrast}%</span>
+                      </div>
+                    </div>
                     <p className="ro-ingest-live-hex-menu-hint muted">
                       Publishes{' '}
                       <code className="ro-drawer-code">{isInRoom ? peerId : CAMERA_FEED}</code> on{' '}
@@ -1723,7 +1638,10 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
             </p>
             <div className="vfl-feeds-grid">
               <div className="vfl-feeds-block">
-                <h3 className="vfl-feeds-block-title">Room</h3>
+                <h3 className="vfl-feeds-block-title vfl-room-link-label">
+                  <RoomLinkStatusLight status={roomLinkStatus} />
+                  Room
+                </h3>
                 {isInRoom ? (
                   <p className="vfl-feeds-status muted" role="status">
                     In <code className="ro-drawer-code">{roomId}</code> as{' '}
@@ -2064,14 +1982,178 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         </div>
       </header>
 
-      <div className="vfl-layout">
+      <nav className="vfl-lab-view-nav" aria-label="Lab view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={labView === 'stage'}
+          className={`ro-btn ro-btn-ghost${labView === 'stage' ? ' is-active' : ''}`}
+          onClick={() => setLabView('stage')}
+        >
+          Stage
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={labView === 'vwall'}
+          className={`ro-btn ro-btn-ghost${labView === 'vwall' ? ' is-active' : ''}`}
+          onClick={() => setLabView('vwall')}
+        >
+          VWall
+        </button>
+        <span className="vfl-lab-view-meta muted">
+          {feedOrder.length} feed{feedOrder.length === 1 ? '' : 's'} · mosaic shows latest hex per source
+        </span>
+      </nav>
+
+      <div className={`vfl-layout${labView === 'vwall' ? ' vfl-layout--vwall' : ''}`}>
         <main className="vfl-main">
+          {labView === 'vwall' ? (
+            <section className="vfl-vwall-pane" aria-label="VWall — all live feeds">
+              <div className="vfl-vwall-toolbar">
+                <input
+                  type="text"
+                  className="vfl-yt-stream-input"
+                  placeholder="Image search (empty = picsum batch)"
+                  value={vwallSearch}
+                  onChange={(e) => setVwallSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void loadVwallFeeds()
+                  }}
+                  aria-label="VWall image search"
+                />
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost"
+                  disabled={vwallBusy}
+                  onClick={() => void loadVwallFeeds()}
+                >
+                  {vwallBusy ? 'Loading…' : 'Load images'}
+                </button>
+                <label className="vfl-check">
+                  <span className="vfl-media-label">Count {vwallCount}</span>
+                  <input
+                    type="range"
+                    min={8}
+                    max={120}
+                    step={4}
+                    value={vwallCount}
+                    onChange={(e) => setVwallCount(Number(e.target.value))}
+                  />
+                </label>
+                <div className="vfl-vwall-layout-toggle" role="group" aria-label="Wall layout">
+                  <button
+                    type="button"
+                    className={`ro-btn ro-btn-ghost${vwallWallLayout === 'dense' ? ' is-active' : ''}`}
+                    onClick={() => setVwallWallLayout('dense')}
+                  >
+                    Dense
+                  </button>
+                  <button
+                    type="button"
+                    className={`ro-btn ro-btn-ghost${vwallWallLayout === 'checker' ? ' is-active' : ''}`}
+                    onClick={() => setVwallWallLayout('checker')}
+                  >
+                    Checker
+                  </button>
+                </div>
+                <a
+                  href="https://fornevercollective.github.io/vwall/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ro-btn ro-btn-ghost"
+                >
+                  Open GPU VWall
+                </a>
+              </div>
+              {vwallErr ? (
+                <p className="vfl-yt-stream-err muted" role="alert">
+                  {vwallErr}
+                </p>
+              ) : null}
+              <VflFeedMosaic
+                variant="wall"
+                wallLayout={vwallWallLayout}
+                framesRef={framesRef}
+                feedKeys={feedOrder}
+                thumbSeq={feedThumbSeq}
+                activeFeedKey={displayKey}
+                offThumbRef={bumpOffRef}
+                onSelectFeed={(fk) => {
+                  const idx = feedOrder.indexOf(fk)
+                  if (idx >= 0) setActiveIdx(idx)
+                  setLabView('stage')
+                }}
+              />
+              <p className="vfl-vwall-hint muted">
+                One tile per feed (camera, peers, YouTube, VWall images, demos). Click a tile to focus it on the
+                stage. Same hex pipeline as{' '}
+                <a href="https://github.com/fornevercollective/vwall" target="_blank" rel="noreferrer">
+                  fornevercollective/vwall
+                </a>
+                , optimized for live updates in-page.
+              </p>
+            </section>
+          ) : (
           <div className="vfl-stage-bump">
-            <div className="vfl-stage-column">
-              <section
-                className="vfl-panel vfl-media-controls"
-                aria-label="Video transport, waveform, captions, image, and stream audio"
-              >
+            <div className="vfl-stage-wrap">
+              <div className="vfl-stage-toolbar">
+                <button type="button" className="ro-btn ro-btn-ghost" disabled={nFeeds <= 1} onClick={() => cycleFeed(-1)}>
+                  ◀ Feeds
+                </button>
+                <button type="button" className="ro-btn ro-btn-ghost" disabled={nFeeds <= 1} onClick={() => cycleFeed(1)}>
+                  Feeds ▶
+                </button>
+                <button
+                  type="button"
+                  className={`ro-btn ro-btn-ghost${pinnedKey ? ' is-lit' : ''}`}
+                  onClick={() => {
+                    if (pinActive) setPinnedKey(null)
+                    else setPinnedKey(atKey)
+                  }}
+                >
+                  {pinActive ? 'Unpin' : 'Pin'} {atKey}
+                </button>
+              </div>
+              <div className="vfl-stage-visual-stack">
+                <div
+                  className="vfl-stage-filter-wrap"
+                  style={{
+                    filter: `brightness(${imageBrightness}%) contrast(${imageContrast}%)`,
+                  }}
+                >
+                  <canvas
+                    ref={stageRef}
+                    className={`vfl-stage${depthZones ? ' vfl-stage--depth-stack' : ''}`}
+                    width={STAGE_PX}
+                    height={STAGE_PX}
+                    onPointerMove={onStackPointer}
+                  />
+                  <canvas
+                    ref={poseCanvasRef}
+                    className="vfl-pose-overlay"
+                    width={STAGE_PX}
+                    height={STAGE_PX}
+                    aria-hidden
+                  />
+                </div>
+                {captionsOn && captionText.trim() ? (
+                  <div className="vfl-caption-overlay" aria-live="polite">
+                    {captionText}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <VflBumpRail
+              framesRef={framesRef}
+              feedKeys={feedOrder}
+              thumbSeq={feedThumbSeq}
+              offThumbRef={bumpOffRef}
+            />
+            <section
+              className="vfl-panel vfl-media-controls"
+              aria-label="Video transport, waveform, captions, image, and stream audio"
+            >
                 <div className="vfl-media-grid">
                   <div className="vfl-media-block vfl-media-block--video">
                     <h3 className="vfl-media-block-title">Video</h3>
@@ -2368,97 +2450,10 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                       aria-label="Caption overlay text"
                     />
                   </div>
-                  <div className="vfl-media-block">
-                    <h3 className="vfl-media-block-title">Image</h3>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-bri">
-                        Brightness
-                      </label>
-                      <input
-                        id="vfl-bri"
-                        type="range"
-                        min={40}
-                        max={160}
-                        step={1}
-                        value={imageBrightness}
-                        onChange={(e) => setImageBrightness(Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{imageBrightness}%</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-con">
-                        Contrast
-                      </label>
-                      <input
-                        id="vfl-con"
-                        type="range"
-                        min={40}
-                        max={160}
-                        step={1}
-                        value={imageContrast}
-                        onChange={(e) => setImageContrast(Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{imageContrast}%</span>
-                    </div>
-                  </div>
                 </div>
               </section>
-              <div className="vfl-stage-wrap">
-                <div className="vfl-stage-toolbar">
-                  <button type="button" className="ro-btn ro-btn-ghost" disabled={nFeeds <= 1} onClick={() => cycleFeed(-1)}>
-                    ◀ Feeds
-                  </button>
-                  <button type="button" className="ro-btn ro-btn-ghost" disabled={nFeeds <= 1} onClick={() => cycleFeed(1)}>
-                    Feeds ▶
-                  </button>
-                  <button
-                    type="button"
-                    className={`ro-btn ro-btn-ghost${pinnedKey ? ' is-lit' : ''}`}
-                    onClick={() => {
-                      if (pinActive) setPinnedKey(null)
-                      else setPinnedKey(atKey)
-                    }}
-                  >
-                    {pinActive ? 'Unpin' : 'Pin'} {atKey}
-                  </button>
-                </div>
-                <div className="vfl-stage-visual-stack">
-                  <div
-                    className="vfl-stage-filter-wrap"
-                    style={{
-                      filter: `brightness(${imageBrightness}%) contrast(${imageContrast}%)`,
-                    }}
-                  >
-                    <canvas
-                      ref={stageRef}
-                      className={`vfl-stage${depthZones ? ' vfl-stage--depth-stack' : ''}`}
-                      width={STAGE_PX}
-                      height={STAGE_PX}
-                      onPointerMove={onStackPointer}
-                    />
-                    <canvas
-                      ref={poseCanvasRef}
-                      className="vfl-pose-overlay"
-                      width={STAGE_PX}
-                      height={STAGE_PX}
-                      aria-hidden
-                    />
-                  </div>
-                  {captionsOn && captionText.trim() ? (
-                    <div className="vfl-caption-overlay" aria-live="polite">
-                      {captionText}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-            <VflBumpRail
-              framesRef={framesRef}
-              feedKeys={feedOrder}
-              thumbSeq={feedThumbSeq}
-              offThumbRef={bumpOffRef}
-            />
           </div>
+          )}
 
           <div className="vfl-chips" role="tablist" aria-label="Known feeds">
             {chips.map((k) => {

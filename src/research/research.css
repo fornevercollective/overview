@@ -845,6 +845,16 @@ button.ro-ingest-live-hex-menu-summary {
   margin-top: 4px;
 }
 
+.ro-ingest-live-hex-menu-panel .vfl-camera-image-tune .vfl-media-row {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.ro-ingest-live-hex-menu-panel .vfl-camera-image-tune .vfl-media-row input[type='range'] {
+  flex: 1 1 8rem;
+  min-width: 5rem;
+}
+
 .ro-ingest-live-hex-menu-label {
   flex: 0 0 3.2rem;
   font-size: 0.68rem;
@@ -889,6 +899,42 @@ button.ro-ingest-live-hex-menu-summary {
   flex: 0 0 auto;
   padding: 4px 10px;
   font-size: 0.72rem;
+}
+
+.ro-room-link-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ro-room-status-light {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-muted, #888) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.ro-room-status-light--live {
+  background: color-mix(in srgb, #c9a227 88%, #fff 12%);
+  box-shadow: 0 0 6px color-mix(in srgb, #c9a227 45%, transparent);
+}
+
+.ro-room-status-light--peer {
+  background: color-mix(in srgb, #3d9a5c 90%, #fff 10%);
+  box-shadow: 0 0 8px color-mix(in srgb, #3d9a5c 50%, transparent);
+  animation: ro-room-status-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ro-room-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 .ro-ingest-live-hex-menu-wide {

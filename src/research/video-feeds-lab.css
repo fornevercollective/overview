@@ -50,15 +50,6 @@
   gap: 6px;
 }
 
-.vfl-stage-column {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.75rem;
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
 .vfl-header-kicker-effects .vfl-panel.vfl-stage-effects {
   flex: 1 1 100%;
   width: 100%;
@@ -201,6 +192,12 @@
   font-family: var(--ro-font-mono);
   color: color-mix(in srgb, var(--ro-muted) 88%, var(--ro-accent) 12%);
   font-weight: 600;
+}
+
+.vfl-feeds-block-title.vfl-room-link-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .vfl-feeds-status {
@@ -436,10 +433,29 @@
 }
 
 .vfl-stage-bump {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, auto);
+  grid-template-areas:
+    'stage bump'
+    'media media';
+  align-items: start;
   gap: clamp(12px, 2vw, 24px);
+}
+
+.vfl-stage-bump > .vfl-stage-wrap {
+  grid-area: stage;
+}
+
+.vfl-stage-bump > .vfl-bump-rail {
+  grid-area: bump;
+}
+
+.vfl-stage-bump > .vfl-media-controls {
+  grid-area: media;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .vfl-stage-wrap {
@@ -447,6 +463,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 0.65rem;
+  justify-self: start;
 }
 
 .vfl-stage {
@@ -595,6 +612,132 @@
   .vfl-bump-tile-outer {
     transition: none;
   }
+}
+
+/* VWall tab — dense live feed mosaic (vwall.github.io–style density, hex tiles) */
+.vfl-lab-view-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.vfl-lab-view-meta {
+  font-size: 0.68rem;
+  margin-left: auto;
+}
+
+.vfl-layout--vwall .vfl-main {
+  width: 100%;
+}
+
+.vfl-vwall-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-height: min(72vh, 720px);
+}
+
+.vfl-vwall-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.vfl-vwall-toolbar .vfl-yt-stream-input {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+}
+
+.vfl-vwall-toolbar .vfl-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.68rem;
+}
+
+.vfl-vwall-toolbar .vfl-check input[type='range'] {
+  width: 8rem;
+}
+
+.vfl-vwall-layout-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.vfl-vwall-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.vfl-feed-mosaic--wall {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 88%, var(--code-bg) 12%);
+  max-height: min(68vh, 820px);
+  overflow: auto;
+  align-content: start;
+  box-sizing: border-box;
+}
+
+.vfl-feed-mosaic--wall.vfl-feed-mosaic--checker {
+  grid-template-columns: repeat(var(--vfl-wall-cols, 8), minmax(52px, 1fr));
+  gap: 3px 6px;
+}
+
+.vfl-feed-mosaic--checker .vfl-wall-tile-btn[data-row-even='1'] {
+  transform: translateX(50%);
+}
+
+.vfl-wall-tile-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
+  margin: 0;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 94%, var(--code-bg) 6%);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  min-width: 0;
+}
+
+.vfl-wall-tile-btn:hover {
+  border-color: color-mix(in srgb, var(--ro-accent) 35%, var(--border));
+}
+
+.vfl-wall-tile-btn.is-active {
+  border-color: color-mix(in srgb, var(--ro-accent) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ro-accent) 25%, transparent);
+}
+
+.vfl-wall-tile-btn .vfl-bump-tile--snap {
+  width: 100%;
+  height: auto;
+}
+
+.vfl-wall-tile-label {
+  font-size: 0.48rem;
+  font-family: var(--ro-font-mono);
+  line-height: 1.1;
+  color: var(--text-muted, var(--text-h));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .vfl-hidden-video,

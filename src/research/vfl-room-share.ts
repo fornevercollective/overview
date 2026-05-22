@@ -112,6 +112,24 @@ export async function decodeVflRoomSharePayload(b64url: string): Promise<VflRoom
   }
 }
 
+/** Extract base64url payload from a pasted URL or `#vfl-room=…` fragment. */
+export function extractVflRoomPayloadFromPaste(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  if (trimmed.includes(VFL_ROOM_HASH_PREFIX)) {
+    const i = trimmed.indexOf(VFL_ROOM_HASH_PREFIX)
+    return trimmed.slice(i + VFL_ROOM_HASH_PREFIX.length).split(/[#?&]/)[0] ?? ''
+  }
+  if (trimmed.startsWith('#')) return trimmed.slice(1).replace(/^vfl-room=/, '')
+  return trimmed
+}
+
+export async function decodeRoomPaste(raw: string): Promise<VflRoomSharePayload | null> {
+  const payload = extractVflRoomPayloadFromPaste(raw)
+  if (!payload) return null
+  return decodeVflRoomSharePayload(payload)
+}
+
 export function consumePendingFeedPaste(): string | null {
   try {
     const raw = sessionStorage.getItem(VFL_PENDING_FEED_STORAGE)
