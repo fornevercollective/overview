@@ -1,5 +1,21 @@
 /// <reference types="vite/client" />
 
+/** Web Speech API — not in all TS lib targets; used for one-shot mic.listen in Video feeds lab. */
+interface SpeechRecognition extends EventTarget {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  maxAlternatives: number
+  start(): void
+  stop(): void
+  onresult: ((ev: SpeechRecognitionEvent) => void) | null
+  onerror: ((ev: Event) => void) | null
+}
+
+interface SpeechRecognitionEvent extends Event {
+  readonly results: SpeechRecognitionResultList
+}
+
 interface ImportMetaEnv {
   /** Optional dev-server proxy base for agent-style POSTs (must match endpoint origin when set). */
   readonly VITE_AGENT_BASE?: string

@@ -638,6 +638,7 @@
 }
 
 .vfl-stage-filter-wrap {
+  position: relative;
   display: block;
   line-height: 0;
 }
@@ -645,6 +646,60 @@
 .vfl-stage-visual-stack .vfl-stage {
   width: min(100%, 520px);
   height: auto;
+}
+
+.vfl-stage-filter-wrap .vfl-pose-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.vfl-gsplat-tune {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vfl-gsplat-tune-intro {
+  margin: 0 0 4px;
+}
+
+button.vfl-gsplat-reset {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.vfl-voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.vfl-voice-prompt-label {
+  display: block;
+  margin: 6px 0 2px;
+  font-size: 0.65rem;
+}
+
+.vfl-voice-log {
+  margin: 8px 0 0;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.vfl-pose-err {
+  margin: 4px 0 0;
+  font-size: 0.65rem;
+  color: var(--ro-warn, #b45309);
 }
 
 .vfl-caption-overlay {

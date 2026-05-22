@@ -7,6 +7,31 @@ import { thermalRgb } from './liveHexCodec'
 
 export type DitherPass = 'none' | 'bayer4' | 'bayer8' | 'halftone' | 'ascii'
 
+/** CPU “splat-inspired” depth proxy knobs (not real 3DGS — exposes optimizable structure). */
+export type GsplatDepthTune = {
+  /** Weight on radial falloff (center → edge). Default 0.36. */
+  radial: number
+  /** Weight on vertical gradient. Default 0.34. */
+  vertical: number
+  /** Weight on inverse luminance. Default 0.3. */
+  luminance: number
+  /** Exponent on forward float term (1−z). Default 1.28. */
+  zPow: number
+  /** Thermal sweep frequency multiplier vs time. Default 1.65. */
+  sweepHz: number
+  /** Scalar inside `sin(·)` thermal term. Default 4.25. */
+  sweepZM: number
+}
+
+export const DEFAULT_GSPLAT_DEPTH: GsplatDepthTune = {
+  radial: 0.36,
+  vertical: 0.34,
+  luminance: 0.3,
+  zPow: 1.28,
+  sweepHz: 1.65,
+  sweepZM: 4.25,
+}
+
 export type DepthSpatialStackOpts = {
   /** −1…1 “key” light direction in frame space (pointer on stage). */
   lightNx: number
@@ -15,6 +40,8 @@ export type DepthSpatialStackOpts = {
   timeSec: number
   /** 0…1 scales thermal overlay; camera thermal mode typically 1. */
   thermalAmp: number
+  /** Optional overrides for gaussian-stack depth proxy (labelled “gsplat-style” in UI). */
+  gsplat?: Partial<GsplatDepthTune>
 }
 
 /** 4×4 Bayer matrix (0–15). */
@@ -141,11 +168,28 @@ export function applyDitherPass(
   ctx.putImageData(img, 0, 0)
 }
 
-function depthProxyZ(x: number, y: number, _w: number, h: number, cx0: number, cy0: number, maxR: number, L: number): number {
+function depthProxyZ(
+  x: number,
+  y: number,
+  _w: number,
+  h: number,
+  cx0: number,
+  cy0: number,
+  maxR: number,
+  L: number,
+  g: GsplatDepthTune,
+): number {
   const radial = Math.hypot(x - cx0, y - cy0) / maxR
   const vert = y / Math.max(1, h - 1)
-  const z = Math.max(0, Math.min(1, 0.36 * (1 - radial) + 0.34 * vert + 0.3 * (1 - L)))
+  const z = Math.max(
+    0,
+    Math.min(1, g.radial * (1 - radial) + g.vertical * vert + g.luminance * (1 - L)),
+  )
   return z
+}
+
+function mergeGsplat(partial?: Partial<GsplatDepthTune>): GsplatDepthTune {
+  return { ...DEFAULT_GSPLAT_DEPTH, ...partial }
 }
 
 function edgeFromLum(L0: Float32Array, x: number, y: number, w: number, h: number): number {
@@ -193,6 +237,7 @@ export function applyDepthSpatialStack(
 
   const lx = Math.max(-1, Math.min(1, opts.lightNx))
   const ly = Math.max(-1, Math.min(1, opts.lightNy))
+  const g = mergeGsplat(opts.gsplat)
   const buf = new Uint8ClampedArray(sd)
 
   for (let y = 0; y < h; y++) {
@@ -217,9 +262,9 @@ export function applyDepthSpatialStack(
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4
       const L = L0[y * w + x]!
-      const z = depthProxyZ(x, y, w, h, cx0, cy0, maxR, L)
-      const sweep = Math.sin(t * 1.65 + z * Math.PI * 4.25) * 0.5 + 0.5
-      const floatFront = Math.pow(1 - z, 1.28)
+      const z = depthProxyZ(x, y, w, h, cx0, cy0, maxR, L, g)
+      const sweep = Math.sin(t * g.sweepHz + z * Math.PI * g.sweepZM) * 0.5 + 0.5
+      const floatFront = Math.pow(1 - z, g.zPow)
       const aT = amp * (0.1 + 0.36 * sweep + 0.46 * floatFront * (0.48 + 0.52 * sweep))
       const lv = Math.round(L * 255)
       const [tr, tg, tb] = thermalRgb(lv, 'color')
@@ -240,7 +285,7 @@ export function applyDepthSpatialStack(
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4
       const L = L0[y * w + x]!
-      const z = depthProxyZ(x, y, w, h, cx0, cy0, maxR, L)
+      const z = depthProxyZ(x, y, w, h, cx0, cy0, maxR, L, g)
       const edge = edgeFromLum(L0, x, y, w, h)
       const wD = Math.min(1, 0.22 + 0.58 * edge + 0.22 * Math.pow(z, 0.88))
       for (let c = 0; c < 3; c++) {

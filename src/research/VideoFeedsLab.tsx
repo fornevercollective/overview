@@ -16,7 +16,15 @@ import {
 } from './liveHexCodec'
 import { ffmpegCdnStreamUrlForVideoId } from '../util/ffmpegStreamUrl'
 import { parseYouTubeVideoId, stripYouTubePasteDecorators } from '../util/youtube'
-import { applyDepthSpatialStack, applyDitherPass, type DitherPass } from './videoLabEffects'
+import {
+  applyDepthSpatialStack,
+  applyDitherPass,
+  DEFAULT_GSPLAT_DEPTH,
+  type DitherPass,
+  type GsplatDepthTune,
+} from './videoLabEffects'
+import { videoLabChatCompletion } from './videoLabOllama'
+import { drawPoseSkeleton, getPoseLandmarker } from './videoLabMediaPipePose'
 import './video-feeds-lab.css'
 
 export type VideoFeedsLabProps = {
@@ -292,6 +300,29 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [imageBrightness, setImageBrightness] = useState(100)
   const [imageContrast, setImageContrast] = useState(100)
 
+  /** Camera microphone + presence lab */
+  const [cameraMicOn, setCameraMicOn] = useState(false)
+  const [gsplatTune, setGsplatTune] = useState<Partial<GsplatDepthTune>>({})
+  const [poseEnabled, setPoseEnabled] = useState(false)
+  const [poseErr, setPoseErr] = useState<string | null>(null)
+
+  const [voicePrompt, setVoicePrompt] = useState(
+    'In one short question, ask if my lighting and framing look OK for research video.',
+  )
+  const [voiceLog, setVoiceLog] = useState('')
+  const [voiceBusy, setVoiceBusy] = useState(false)
+
+  const [spectrumSource, setSpectrumSource] = useState<'stream' | 'mic'>('stream')
+  const [acousticFft, setAcousticFft] = useState<256 | 512 | 1024 | 2048>(512)
+  const [acousticSmooth, setAcousticSmooth] = useState(0.62)
+
+  const poseCanvasRef = useRef<HTMLCanvasElement>(null)
+  const poseRafRef = useRef(0)
+  const landmarkerRef = useRef<Awaited<ReturnType<typeof getPoseLandmarker>> | null>(null)
+  const micAnalyserRef = useRef<AnalyserNode | null>(null)
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const micSetupGenRef = useRef(0)
+
   const [ytUiTime, setYtUiTime] = useState(0)
   const [ytUiDur, setYtUiDur] = useState(0)
   const [ytUiPaused, setYtUiPaused] = useState(true)
@@ -333,6 +364,12 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   }, [])
 
   const variation = VARIATIONS[variationIdx % VARIATIONS.length]!
+
+  const gsplatEffective = useMemo(() => ({ ...DEFAULT_GSPLAT_DEPTH, ...gsplatTune }), [gsplatTune])
+
+  const setGsplatField = useCallback((key: keyof GsplatDepthTune, value: number) => {
+    setGsplatTune((prev) => ({ ...prev, [key]: value }))
+  }, [])
 
   const redrawStage = useCallback(() => {
     const canvas = stageRef.current
@@ -385,6 +422,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         lightNy: stackLightRef.current.ny,
         timeSec: (performance.now() - stackT0Ref.current) / 1000,
         thermalAmp: eff === CAMERA_FEED && cameraFeedMode === 'color' ? 1 : 0.72,
+        gsplat: gsplatTune,
       })
     } else {
       applyDitherPass(ctx, STAGE_PX, STAGE_PX, variation.dither)
@@ -400,7 +438,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     ring.write = (ring.write + 1) % TRAIL_SLOTS
     ring.filled = Math.min(TRAIL_SLOTS, ring.filled + 1)
     setTrailSeq((n) => n + 1)
-  }, [variation, depthZones, cameraFeedMode])
+  }, [variation, depthZones, cameraFeedMode, gsplatTune])
 
   const ingest = useCallback(
     (msg: HexFrameMsg) => {
@@ -492,7 +530,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       try {
         const s = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: cameraFacing }, width: { ideal: 720 }, height: { ideal: 480 } },
-          audio: false,
+          audio: cameraMicOn,
         })
         if (cancelled) {
           for (const t of s.getTracks()) t.stop()
@@ -521,7 +559,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       }
       video.srcObject = null
     }
-  }, [cameraOn, cameraFacing])
+  }, [cameraOn, cameraFacing, cameraMicOn])
 
   useEffect(() => {
     if (!cameraOn) return
@@ -684,11 +722,16 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     const draw = () => {
       if (stopped) return
       resize()
-      const analyser = analyserRef.current
+      const analyser =
+        spectrumSource === 'mic' ? micAnalyserRef.current : analyserRef.current
+      const active =
+        spectrumSource === 'mic'
+          ? cameraMicOn && !!micAnalyserRef.current
+          : streamAudioOn && !!analyserRef.current
       const w = canvas.width
       const h = canvas.height
       let data: Uint8Array
-      if (analyser && streamAudioOn) {
+      if (analyser && active) {
         if (!freqBuf || freqBuf.length !== analyser.frequencyBinCount) {
           freqBuf = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount))
         }
@@ -706,7 +749,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       ctx.fillStyle = accent
       for (let i = 0; i < barCount; i++) {
         const vi = data[i]!
-        const norm = analyser && streamAudioOn ? vi / 255 : 0.04
+        const norm = analyser && active ? vi / 255 : 0.04
         const bh = Math.max(1, norm * h * 0.94)
         ctx.fillRect(Math.floor(i * step), h - bh, Math.max(1, Math.ceil(step) - 1), bh)
       }
@@ -717,7 +760,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       stopped = true
       cancelAnimationFrame(wfRafRef.current)
     }
-  }, [showWaveform, streamAudioOn])
+  }, [showWaveform, streamAudioOn, spectrumSource, cameraMicOn])
 
   useEffect(() => {
     if (!ytFeedId) return
@@ -942,6 +985,168 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     setActiveIdx(0)
   }, [])
 
+  useEffect(() => {
+    const a = analyserRef.current
+    if (!a || !streamAudioOn) return
+    a.fftSize = acousticFft
+    a.smoothingTimeConstant = acousticSmooth
+  }, [acousticFft, acousticSmooth, streamAudioOn])
+
+  useEffect(() => {
+    const a = micAnalyserRef.current
+    if (!a || !cameraMicOn) return
+    a.fftSize = acousticFft
+    a.smoothingTimeConstant = acousticSmooth
+  }, [acousticFft, acousticSmooth, cameraMicOn])
+
+  useEffect(() => {
+    micSetupGenRef.current++
+    const gen = micSetupGenRef.current
+    if (!cameraOn || !cameraMicOn) {
+      try {
+        micSourceRef.current?.disconnect()
+      } catch {
+        /* noop */
+      }
+      micSourceRef.current = null
+      micAnalyserRef.current = null
+      return
+    }
+    const v = videoRef.current
+    const stream = v?.srcObject as MediaStream | null
+    if (!stream?.getAudioTracks()[0]) return
+    void (async () => {
+      const ctx = audioCtxRef.current ?? new AudioContext()
+      audioCtxRef.current = ctx
+      if (ctx.state === 'suspended') await ctx.resume()
+      if (gen !== micSetupGenRef.current) return
+      try {
+        micSourceRef.current?.disconnect()
+      } catch {
+        /* noop */
+      }
+      const src = ctx.createMediaStreamSource(stream)
+      const an = ctx.createAnalyser()
+      an.fftSize = acousticFft
+      an.smoothingTimeConstant = acousticSmooth
+      src.connect(an)
+      micSourceRef.current = src
+      micAnalyserRef.current = an
+    })()
+    return () => {
+      micSetupGenRef.current++
+      try {
+        micSourceRef.current?.disconnect()
+      } catch {
+        /* noop */
+      }
+      micSourceRef.current = null
+      micAnalyserRef.current = null
+    }
+  }, [cameraOn, cameraMicOn, acousticFft, acousticSmooth])
+
+  useEffect(() => {
+    if (!poseEnabled || !cameraOn) {
+      cancelAnimationFrame(poseRafRef.current)
+      landmarkerRef.current = null
+      const pc = poseCanvasRef.current
+      const ctx = pc?.getContext('2d')
+      if (pc && ctx) ctx.clearRect(0, 0, pc.width, pc.height)
+      return
+    }
+    let cancelled = false
+    setPoseErr(null)
+    void (async () => {
+      try {
+        landmarkerRef.current = await getPoseLandmarker()
+      } catch (e) {
+        if (!cancelled) setPoseErr(e instanceof Error ? e.message : 'Pose init failed')
+      }
+    })()
+    const loop = () => {
+      if (cancelled) return
+      const v = videoRef.current
+      const pc = poseCanvasRef.current
+      const lm = landmarkerRef.current
+      if (pc && (pc.width !== STAGE_PX || pc.height !== STAGE_PX)) {
+        pc.width = STAGE_PX
+        pc.height = STAGE_PX
+      }
+      const ctx = pc?.getContext('2d')
+      if (ctx && pc) ctx.clearRect(0, 0, pc.width, pc.height)
+      if (lm && v && ctx && v.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        try {
+          const res = lm.detectForVideo(v, performance.now())
+          const pts = res?.landmarks?.[0]
+          if (pts) drawPoseSkeleton(ctx, pts, STAGE_PX, STAGE_PX)
+        } catch {
+          /* dropout */
+        }
+      }
+      poseRafRef.current = requestAnimationFrame(loop)
+    }
+    poseRafRef.current = requestAnimationFrame(loop)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(poseRafRef.current)
+    }
+  }, [poseEnabled, cameraOn])
+
+  const speakText = useCallback((text: string) => {
+    return new Promise<void>((resolve) => {
+      if (!text.trim()) {
+        resolve()
+        return
+      }
+      const u = new SpeechSynthesisUtterance(text)
+      u.onend = () => resolve()
+      u.onerror = () => resolve()
+      window.speechSynthesis.speak(u)
+    })
+  }, [])
+
+  const runVoiceAsk = useCallback(async () => {
+    setVoiceBusy(true)
+    setVoiceLog('')
+    try {
+      const reply = await videoLabChatCompletion(
+        'You will be read aloud with speech synthesis. Be brief: one short paragraph, plain English.',
+        voicePrompt.trim() ||
+          'Ask me one clear question I can answer about my camera or lighting setup.',
+      )
+      setVoiceLog(reply)
+      await speakText(reply)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Voice ask failed'
+      setVoiceLog(msg)
+      await speakText(`Sorry. ${msg}`)
+    } finally {
+      setVoiceBusy(false)
+    }
+  }, [speakText, voicePrompt])
+
+  const runListenOnce = useCallback(() => {
+    const W = window as unknown as {
+      SpeechRecognition?: new () => SpeechRecognition
+      webkitSpeechRecognition?: new () => SpeechRecognition
+    }
+    const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition
+    if (!Ctor) {
+      setVoiceLog('No SpeechRecognition in this browser.')
+      return
+    }
+    const r = new Ctor()
+    r.lang = 'en-US'
+    r.interimResults = false
+    r.maxAlternatives = 1
+    r.onresult = (ev: SpeechRecognitionEvent) => {
+      const t = ev.results[0]?.[0]?.transcript?.trim()
+      setVoiceLog(t ? `Heard: ${t}` : '(empty)')
+    }
+    r.onerror = () => setVoiceLog('Speech recognition error — check mic permission.')
+    r.start()
+  }, [])
+
   const toggleCamera = useCallback(() => {
     if (cameraOn) {
       setFeedOrder((prev) => prev.filter((k) => k !== CAMERA_FEED))
@@ -1032,6 +1237,20 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                     role="menu"
                     aria-labelledby={cameraMenuTriggerId}
                   >
+                    <div className="ro-ingest-live-hex-menu-row">
+                      <span className="ro-ingest-live-hex-menu-label">Mic</span>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraMicOn ? ' is-active' : ''}`}
+                        onClick={() => {
+                          setCameraMicOn((m) => !m)
+                          closeCameraMenu()
+                        }}
+                      >
+                        {cameraMicOn ? 'On' : 'Off'}
+                      </button>
+                    </div>
                     <div className="ro-ingest-live-hex-menu-row">
                       <span className="ro-ingest-live-hex-menu-label">Camera</span>
                       <button
@@ -1231,6 +1450,106 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                   Depth stack — roto lighting (back), thermal sweep + float plane (mid), dither on
                   edges / near plane (front). Pointer on stage moves the key light; ~3× CPU.
                 </label>
+                {depthZones ? (
+                  <div className="vfl-gsplat-tune" aria-label="Depth proxy tuning">
+                    <p className="vfl-media-hint muted vfl-gsplat-tune-intro">
+                      CPU depth proxy (gsplat-inspired weights) — optimizable for experiments.
+                    </p>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-r">
+                        Radial
+                      </label>
+                      <input
+                        id="vfl-gs-r"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={gsplatEffective.radial}
+                        onChange={(e) => setGsplatField('radial', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.radial.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-v">
+                        Vertical
+                      </label>
+                      <input
+                        id="vfl-gs-v"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={gsplatEffective.vertical}
+                        onChange={(e) => setGsplatField('vertical', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.vertical.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-l">
+                        Luminance
+                      </label>
+                      <input
+                        id="vfl-gs-l"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={gsplatEffective.luminance}
+                        onChange={(e) => setGsplatField('luminance', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.luminance.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-zp">
+                        zPow
+                      </label>
+                      <input
+                        id="vfl-gs-zp"
+                        type="range"
+                        min={0.4}
+                        max={2.8}
+                        step={0.02}
+                        value={gsplatEffective.zPow}
+                        onChange={(e) => setGsplatField('zPow', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.zPow.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-sh">
+                        Sweep Hz
+                      </label>
+                      <input
+                        id="vfl-gs-sh"
+                        type="range"
+                        min={0.2}
+                        max={3.5}
+                        step={0.05}
+                        value={gsplatEffective.sweepHz}
+                        onChange={(e) => setGsplatField('sweepHz', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.sweepHz.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-sm">
+                        Sweep zM
+                      </label>
+                      <input
+                        id="vfl-gs-sm"
+                        type="range"
+                        min={1}
+                        max={9}
+                        step={0.05}
+                        value={gsplatEffective.sweepZM}
+                        onChange={(e) => setGsplatField('sweepZM', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.sweepZM.toFixed(2)}</span>
+                    </div>
+                    <button type="button" className="ro-btn ro-btn-ghost vfl-gsplat-reset" onClick={() => setGsplatTune({})}>
+                      Reset depth proxy
+                    </button>
+                  </div>
+                ) : null}
               </section>
               <section
                 className="vfl-panel vfl-media-controls"
@@ -1396,11 +1715,112 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                       <input type="checkbox" checked={showWaveform} onChange={(e) => setShowWaveform(e.target.checked)} />
                       Show spectrum analyzer
                     </label>
+                    <div className="vfl-media-row vfl-media-row--spectrum-source">
+                      <label className="vfl-media-label" htmlFor="vfl-spec-src">
+                        Source
+                      </label>
+                      <select
+                        id="vfl-spec-src"
+                        className="vfl-video-rate-select"
+                        value={spectrumSource}
+                        onChange={(e) => setSpectrumSource(e.target.value as 'stream' | 'mic')}
+                        aria-label="Spectrum analyzer source"
+                      >
+                        <option value="stream">YouTube stream</option>
+                        <option value="mic">Camera mic</option>
+                      </select>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-fft">
+                        FFT size
+                      </label>
+                      <select
+                        id="vfl-fft"
+                        className="vfl-video-rate-select"
+                        value={acousticFft}
+                        onChange={(e) => setAcousticFft(Number(e.target.value) as 256 | 512 | 1024 | 2048)}
+                      >
+                        {[256, 512, 1024, 2048].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-ac-sm">
+                        Smoothing
+                      </label>
+                      <input
+                        id="vfl-ac-sm"
+                        type="range"
+                        min={0}
+                        max={0.99}
+                        step={0.01}
+                        value={acousticSmooth}
+                        onChange={(e) => setAcousticSmooth(Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{acousticSmooth.toFixed(2)}</span>
+                    </div>
                     <canvas
                       ref={waveformCanvasRef}
                       className="vfl-waveform-canvas"
-                      aria-label={streamAudioOn ? 'Stream frequency spectrum' : 'Spectrum idle — enable stream audio for live bins'}
+                      aria-label={
+                        spectrumSource === 'mic'
+                          ? cameraMicOn
+                            ? 'Camera microphone frequency spectrum'
+                            : 'Spectrum idle — turn on camera mic'
+                          : streamAudioOn
+                            ? 'Stream frequency spectrum'
+                            : 'Spectrum idle — enable stream audio'
+                      }
                     />
+                  </div>
+                  <div className="vfl-media-block vfl-media-block--camera-lab">
+                    <h3 className="vfl-media-block-title">Camera + voice</h3>
+                    <p className="vfl-media-hint muted">
+                      Pose overlay uses MediaPipe (CDN). Voice uses the same chat route as Overview; TTS uses the browser{' '}
+                      <code className="ro-drawer-code">speechSynthesis</code> API. Turn on Camera → Mic for spectrum and
+                      speech recognition.
+                    </p>
+                    <label className="vfl-check">
+                      <input
+                        type="checkbox"
+                        checked={poseEnabled}
+                        disabled={!cameraOn}
+                        onChange={(e) => setPoseEnabled(e.target.checked)}
+                      />
+                      Pose skeleton overlay (needs camera)
+                    </label>
+                    {poseErr ? (
+                      <p className="vfl-pose-err muted" role="alert">
+                        {poseErr}
+                      </p>
+                    ) : null}
+                    <label className="vfl-voice-prompt-label muted" htmlFor="vfl-voice-prompt">
+                      Prompt for the model (then speak)
+                    </label>
+                    <textarea
+                      id="vfl-voice-prompt"
+                      className="vfl-caption-input"
+                      rows={2}
+                      value={voicePrompt}
+                      onChange={(e) => setVoicePrompt(e.target.value)}
+                      disabled={voiceBusy}
+                    />
+                    <div className="vfl-voice-actions">
+                      <button type="button" className="ro-btn ro-btn-ghost" disabled={voiceBusy} onClick={runVoiceAsk}>
+                        {voiceBusy ? 'Asking…' : 'Ask (speak reply)'}
+                      </button>
+                      <button type="button" className="ro-btn ro-btn-ghost" disabled={voiceBusy} onClick={runListenOnce}>
+                        Listen once
+                      </button>
+                    </div>
+                    {voiceLog.trim() ? (
+                      <p className="vfl-voice-log muted" aria-live="polite">
+                        {voiceLog}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="vfl-media-block">
                     <h3 className="vfl-media-block-title">Captions</h3>
@@ -1484,6 +1904,13 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                       width={STAGE_PX}
                       height={STAGE_PX}
                       onPointerMove={onStackPointer}
+                    />
+                    <canvas
+                      ref={poseCanvasRef}
+                      className="vfl-pose-overlay"
+                      width={STAGE_PX}
+                      height={STAGE_PX}
+                      aria-hidden
                     />
                   </div>
                   {captionsOn && captionText.trim() ? (
