@@ -5,6 +5,16 @@
 
 export const LIVE_HEX_DOCUMENT_CHANNEL = 'overview-live-hex'
 
+/** Decode modes supported by `thermalRgb` / `drawHexFrame`. */
+export type HexDecodeMode = 'gray' | 'color' | 'fax' | 'signal'
+
+export const HEX_CAMERA_LOOKS: { id: HexDecodeMode; label: string }[] = [
+  { id: 'gray', label: 'Mono' },
+  { id: 'color', label: 'Thermal' },
+  { id: 'fax', label: 'Fax' },
+  { id: 'signal', label: 'Signal' },
+]
+
 export type HexFrameMsg = {
   type: 'hexframe'
   hex: number[]

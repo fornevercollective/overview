@@ -845,14 +845,14 @@ button.ro-ingest-live-hex-menu-summary {
   margin-top: 4px;
 }
 
-.ro-ingest-live-hex-menu-panel .vfl-camera-image-tune .vfl-media-row {
-  margin-top: 6px;
-  width: 100%;
+.ro-ingest-live-hex-menu-row--looks .ro-ingest-live-hex-menu-label {
+  flex: 0 0 100%;
+  margin-bottom: 2px;
 }
 
-.ro-ingest-live-hex-menu-panel .vfl-camera-image-tune .vfl-media-row input[type='range'] {
-  flex: 1 1 8rem;
-  min-width: 5rem;
+.ro-ingest-live-hex-menu-row--looks .ro-ingest-live-hex-menu-action {
+  flex: 1 1 auto;
+  min-width: 3.5rem;
 }
 
 .ro-ingest-live-hex-menu-label {

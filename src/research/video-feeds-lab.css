@@ -22,6 +22,92 @@
 .vfl-page .vfl-header-text {
   flex: 1 1 18rem;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.5vw, 14px);
+}
+
+.vfl-page .vfl-header-text > .vfl-lead {
+  margin: 0 0 0.5rem;
+}
+
+.vfl-page .vfl-header-text > .vfl-credits {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.vfl-header-intro {
+  width: 100%;
+}
+
+.vfl-header-video-bar {
+  width: 100%;
+  padding: 8px 10px 9px;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.vfl-header-video-bar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.vfl-header-video-title {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+}
+
+.vfl-header-video-bar .vfl-video-toolbar {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.vfl-header-video-bar .vfl-video-toolbar .ro-btn {
+  padding: 3px 8px;
+  font-size: 0.68rem;
+}
+
+.vfl-header-video-seek {
+  flex: 1 1 14rem;
+  min-width: 10rem;
+  margin: 0;
+}
+
+.vfl-header-video-seek .vfl-video-seek {
+  flex: 1 1 8rem;
+  min-width: 5rem;
+}
+
+.vfl-header-video-rate {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.vfl-header-video-rate .vfl-video-rate-select {
+  min-width: 4.5rem;
+}
+
+.vfl-header-video-check {
+  margin: 0;
+  font-size: 0.68rem;
+  flex: 0 0 auto;
+}
+
+.vfl-header-video-preview {
+  flex: 0 0 auto;
+  max-width: min(28vw, 160px);
+  max-height: 72px;
+  margin: 0;
+}
+
+.vfl-header-video-hint {
+  margin: 6px 0 0;
+  font-size: 0.62rem;
+  line-height: 1.35;
+  width: 100%;
 }
 
 .vfl-header-kicker-effects {
@@ -81,6 +167,11 @@
 }
 
 .vfl-header-camera-wrap,
+.vfl-header-audio-wrap,
+.vfl-header-waveform-wrap,
+.vfl-header-voice-wrap,
+.vfl-header-captions-wrap,
+.vfl-header-room-wrap,
 .vfl-header-vwall-wrap {
   position: relative;
   z-index: 5;
@@ -89,12 +180,252 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  max-width: min(100%, 20rem);
+  max-width: min(100%, 24rem);
+}
+
+.vfl-camera-menu-panel {
+  min-width: 15.5rem;
+  max-width: min(92vw, 18.5rem);
+  padding: 6px 8px 8px;
+}
+
+.vfl-cam-menu-row--tight {
+  margin-bottom: 4px;
+}
+
+.vfl-cam-menu-row--tight .ro-ingest-live-hex-menu-label {
+  flex: 0 0 2.4rem;
+  font-size: 0.62rem;
+}
+
+.vfl-cam-menu-row--tight .ro-ingest-live-hex-menu-action {
+  padding: 2px 7px;
+  font-size: 0.68rem;
+}
+
+.vfl-cam-menu-preview {
+  width: 100%;
+  margin: 2px 0 6px;
+  aspect-ratio: 4 / 3;
+  max-height: 7.5rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--code-bg) 88%, var(--bg) 12%);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.vfl-cam-menu-preview-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  background: #000;
+}
+
+.vfl-cam-menu-preview-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  min-height: 4.5rem;
+  font-size: 0.62rem;
+  font-family: var(--ro-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.vfl-cam-menu-preview-hint {
+  font-size: 0.58rem;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.75;
+}
+
+.vfl-camera-menu-controls {
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+}
+
+.vfl-cam-section-label {
+  margin: 5px 0 2px;
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-family: var(--ro-font-mono);
+  color: color-mix(in srgb, var(--ro-muted) 88%, var(--ro-accent) 12%);
+  font-weight: 600;
+}
+
+.vfl-cam-section-label:first-child {
+  margin-top: 0;
+}
+
+.vfl-cam-ctrl-row {
+  display: grid;
+  grid-template-columns: 2.35rem minmax(0, 1fr) 2.1rem;
+  align-items: center;
+  gap: 2px 5px;
+  margin: 0 0 2px;
+}
+
+.vfl-cam-ctrl-label {
+  font-size: 0.6rem;
+  line-height: 1.2;
+  color: var(--text-muted, var(--text-h));
+}
+
+.vfl-cam-ctrl-label--static {
+  flex: 0 0 auto;
+}
+
+.vfl-cam-ctrl-range {
+  width: 100%;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--ro-accent);
+}
+
+.vfl-cam-ctrl-val {
+  font-size: 0.56rem;
+  font-family: var(--ro-font-mono);
+  text-align: right;
+  color: var(--text-muted, var(--text-h));
+  line-height: 1.1;
+}
+
+.vfl-cam-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 3px 0;
+  font-size: 0.6rem;
+  line-height: 1.3;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.vfl-cam-check input {
+  margin-top: 1px;
+  flex: none;
+}
+
+.vfl-cam-check--inline {
+  align-items: center;
+}
+
+.vfl-cam-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.62rem;
+  font-family: var(--ro-font-mono);
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.vfl-cam-depth-tune {
+  margin: 2px 0 4px;
+  padding: 4px 0 2px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.vfl-cam-reset-btn {
+  margin: 3px 0 2px;
+  padding: 2px 8px;
+  font-size: 0.62rem;
+}
+
+.vfl-cam-inline-err {
+  margin: 0 0 3px;
+  font-size: 0.58rem;
+  line-height: 1.3;
+}
+
+.vfl-cam-voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 2px;
+}
+
+.vfl-cam-voice-actions .ro-btn {
+  padding: 2px 8px;
+  font-size: 0.66rem;
 }
 
 .vfl-header-camera-wrap .ro-ingest-live-hex-details,
+.vfl-header-audio-wrap .ro-ingest-live-hex-details,
+.vfl-header-waveform-wrap .ro-ingest-live-hex-details,
+.vfl-header-voice-wrap .ro-ingest-live-hex-details,
+.vfl-header-captions-wrap .ro-ingest-live-hex-details,
+.vfl-header-room-wrap .ro-ingest-live-hex-details,
 .vfl-header-vwall-wrap .ro-ingest-live-hex-details {
   flex: none;
+}
+
+.vfl-audio-menu-panel {
+  min-width: 13rem;
+}
+
+.vfl-waveform-menu-panel {
+  min-width: 14rem;
+  max-width: min(92vw, 20rem);
+}
+
+.vfl-waveform-menu-panel .vfl-waveform-canvas {
+  max-width: 100%;
+  height: 56px;
+}
+
+.vfl-voice-menu-panel {
+  min-width: 14rem;
+  max-width: min(92vw, 22rem);
+}
+
+.vfl-voice-menu-panel .vfl-voice-menu-prompt {
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.vfl-captions-menu-panel {
+  min-width: 14rem;
+  max-width: min(92vw, 22rem);
+}
+
+.vfl-captions-menu-panel .vfl-captions-menu-input {
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.vfl-header-room-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vfl-room-menu-panel {
+  min-width: 15rem;
+  max-width: min(92vw, 20rem);
+}
+
+.vfl-room-menu-status {
+  margin: 0 0 6px;
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+
+.vfl-room-menu-panel .vfl-room-menu-share-url {
+  margin-top: 4px;
+  width: 100%;
+  font-size: 0.62rem;
 }
 
 .vfl-header-vwall-menu {
@@ -123,8 +454,33 @@
   max-width: min(100%, 52rem);
 }
 
+.vfl-feeds-hub--collapsed {
+  padding-bottom: 8px;
+}
+
+.vfl-feeds-hub-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
 .vfl-feeds-hub-title {
-  margin: 0 0 0.35rem;
+  margin: 0;
+}
+
+.vfl-feeds-hub-toggle {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+}
+
+.vfl-feeds-hub-body {
+  margin-top: 8px;
+}
+
+.vfl-feeds-hub-body .vfl-feeds-lead {
+  margin: 0 0 0.5rem;
 }
 
 .vfl-feeds-lead {
@@ -216,18 +572,6 @@
   margin-top: 0.45rem;
   width: 100%;
   font-size: 0.62rem;
-}
-
-.vfl-feeds-chat .vfl-chat-log {
-  min-height: 5.5rem;
-  max-height: 9rem;
-  overflow-y: auto;
-  margin: 0 0 0.5rem;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--code-bg) 92%, transparent);
-  font-size: 0.72rem;
 }
 
 .vfl-chat-empty {
@@ -354,9 +698,65 @@
 
 .vfl-layout {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: clamp(14px, 2vw, 24px);
+  grid-template-columns: minmax(11.5rem, 15rem) minmax(0, 1fr);
+  gap: clamp(12px, 2vw, 20px);
   align-items: start;
+}
+
+.vfl-shoulder-column {
+  position: sticky;
+  top: clamp(8px, 1.5vw, 14px);
+  min-width: 0;
+  align-self: start;
+}
+
+.vfl-shoulder-chat {
+  padding: 8px 10px 10px;
+}
+
+.vfl-shoulder-chat .vfl-panel-title {
+  margin-bottom: 6px;
+}
+
+.vfl-shoulder-chat .vfl-chat-log {
+  min-height: 6.5rem;
+  max-height: min(42vh, 22rem);
+  overflow-y: auto;
+  margin: 0 0 0.45rem;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--code-bg) 92%, transparent);
+  font-size: 0.7rem;
+}
+
+.vfl-shoulder-chat-input {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-size: 0.72rem;
+}
+
+.vfl-shoulder-chat .vfl-chat-form {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.vfl-shoulder-chat .vfl-chat-form .ro-btn {
+  align-self: flex-start;
+}
+
+@media (max-width: 52rem) {
+  .vfl-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .vfl-shoulder-column {
+    position: static;
+  }
+
+  .vfl-shoulder-chat .vfl-chat-log {
+    max-height: 10rem;
+  }
 }
 
 .vfl-panel {
@@ -435,9 +835,7 @@
 .vfl-stage-bump {
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, auto);
-  grid-template-areas:
-    'stage bump'
-    'media media';
+  grid-template-areas: 'stage bump';
   align-items: start;
   gap: clamp(12px, 2vw, 24px);
 }
@@ -448,14 +846,6 @@
 
 .vfl-stage-bump > .vfl-bump-rail {
   grid-area: bump;
-}
-
-.vfl-stage-bump > .vfl-media-controls {
-  grid-area: media;
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
 }
 
 .vfl-stage-wrap {

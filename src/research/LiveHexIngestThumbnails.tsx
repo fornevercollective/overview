@@ -3,9 +3,11 @@ import {
   type HexFrameMsg,
   isHexFrameMsg,
   drawHexFrame,
+  HEX_CAMERA_LOOKS,
   luminanceHexFromImageData,
   normalizeFeedKey,
   shiftCanvases,
+  type HexDecodeMode,
 } from './liveHexCodec'
 import { RoomLinkStatusLight } from './RoomLinkStatusLight'
 import {
@@ -76,7 +78,7 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
   const [active, setActive] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user')
-  const [cameraHexMode, setCameraHexMode] = useState<'gray' | 'color'>('gray')
+  const [cameraHexMode, setCameraHexMode] = useState<HexDecodeMode>('gray')
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [feedOrder, setFeedOrder] = useState<string[]>([DEFAULT_FEED])
   const [activeIdx, setActiveIdx] = useState(0)
@@ -560,19 +562,20 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
               Rear
             </button>
           </div>
-          <div className="ro-ingest-live-hex-menu-row">
+          <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--looks">
             <span className="ro-ingest-live-hex-menu-label">Look</span>
-            <button
-              type="button"
-              role="menuitem"
-              className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraHexMode === 'color' ? ' is-active' : ''}`}
-              onClick={() => {
-                setCameraHexMode((m) => (m === 'gray' ? 'color' : 'gray'))
-                closeMenu()
-              }}
-            >
-              Thermal
-            </button>
+            {HEX_CAMERA_LOOKS.map((look) => (
+              <button
+                key={look.id}
+                type="button"
+                role="menuitem"
+                className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraHexMode === look.id ? ' is-active' : ''}`}
+                aria-pressed={cameraHexMode === look.id}
+                onClick={() => setCameraHexMode(look.id)}
+              >
+                {look.label}
+              </button>
+            ))}
           </div>
           <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
             <label className="ro-ingest-live-hex-menu-label" htmlFor="live-feed-paste">

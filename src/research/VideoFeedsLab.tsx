@@ -3,15 +3,17 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import './research.css'
 import {
   drawHexFrame,
+  HEX_CAMERA_LOOKS,
   luminanceHexFromImageData,
   normalizeFeedKey,
+  type HexDecodeMode,
   type HexFrameMsg,
 } from './liveHexCodec'
 import { ffmpegCdnStreamUrlForVideoId } from '../util/ffmpegStreamUrl'
 import { useLiveHexRoom } from './liveHexRoom'
 import { RoomLinkStatusLight } from './RoomLinkStatusLight'
 import { VflBumpRail, VflFeedMosaic } from './VflFeedMosaic'
-import { useRoomChannelActivity } from './vflRoomLinkStatus'
+import { ROOM_LINK_STATUS_TITLE, useRoomChannelActivity } from './vflRoomLinkStatus'
 import { consumePendingFeedPaste, consumePendingRoomPaste, liveHexChannelForRoom } from './vfl-room-share'
 import { parseFeedLinkPaste, ytHexFeedKey } from './vfl-feed-paste'
 import {
@@ -74,6 +76,61 @@ const VARIATIONS: LabVariation[] = [
   { id: 'thermalBayer', label: '{decode:"color",dither:"bayer4"}', decodeMode: 'color', invert: false, scanlines: false, dither: 'bayer4' },
 ]
 
+const GSPLAT_MENU_SLIDERS: {
+  key: keyof GsplatDepthTune
+  label: string
+  min: number
+  max: number
+  step: number
+}[] = [
+  { key: 'radial', label: 'Rad', min: 0, max: 1, step: 0.01 },
+  { key: 'vertical', label: 'Vert', min: 0, max: 1, step: 0.01 },
+  { key: 'luminance', label: 'Lum', min: 0, max: 1, step: 0.01 },
+  { key: 'zPow', label: 'zPow', min: 0.4, max: 2.8, step: 0.02 },
+  { key: 'sweepHz', label: 'Hz', min: 0.2, max: 3.5, step: 0.05 },
+  { key: 'sweepZM', label: 'zM', min: 1, max: 9, step: 0.05 },
+]
+
+function CamMenuSlider({
+  id,
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+  formatValue,
+}: {
+  id: string
+  label: string
+  min: number
+  max: number
+  step: number
+  value: number
+  onChange: (v: number) => void
+  formatValue?: (v: number) => string
+}) {
+  const fmt = formatValue ?? ((v: number) => String(v))
+  return (
+    <div className="vfl-cam-ctrl-row">
+      <label className="vfl-cam-ctrl-label" htmlFor={id}>
+        {label}
+      </label>
+      <input
+        id={id}
+        type="range"
+        className="vfl-cam-ctrl-range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <span className="vfl-cam-ctrl-val">{fmt(value)}</span>
+    </div>
+  )
+}
+
 function postProcessCanvas(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -128,14 +185,26 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [demoPeers, setDemoPeers] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user')
-  const [cameraFeedMode, setCameraFeedMode] = useState<'gray' | 'color'>('gray')
+  const [cameraFeedMode, setCameraFeedMode] = useState<HexDecodeMode>('gray')
   const [cameraErr, setCameraErr] = useState<string | null>(null)
   const [cameraMenuOpen, setCameraMenuOpen] = useState(false)
-  const [vwallMenuOpen, setVwallMenuOpen] = useState(false)
+  const [roomMenuOpen, setRoomMenuOpen] = useState(false)
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false)
+  const [waveformMenuOpen, setWaveformMenuOpen] = useState(false)
+  const [voiceMenuOpen, setVoiceMenuOpen] = useState(false)
+  const [captionsMenuOpen, setCaptionsMenuOpen] = useState(false)
   const cameraMenuId = useId()
-  const vwallMenuId = useId()
+  const roomMenuId = useId()
+  const audioMenuId = useId()
+  const waveformMenuId = useId()
+  const voiceMenuId = useId()
+  const captionsMenuId = useId()
   const cameraMenuTriggerId = `${cameraMenuId}-trigger`
-  const vwallMenuTriggerId = `${vwallMenuId}-trigger`
+  const roomMenuTriggerId = `${roomMenuId}-trigger`
+  const audioMenuTriggerId = `${audioMenuId}-trigger`
+  const waveformMenuTriggerId = `${waveformMenuId}-trigger`
+  const voiceMenuTriggerId = `${voiceMenuId}-trigger`
+  const captionsMenuTriggerId = `${captionsMenuId}-trigger`
   const [feedThumbSeq, setFeedThumbSeq] = useState(0)
   const bumpOffRef = useRef<HTMLCanvasElement | null>(null)
   const [depthZones, setDepthZones] = useState(false)
@@ -153,6 +222,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [vwallTiles, setVwallTiles] = useState<{ feedKey: string; url: string; title: string }[]>([])
   const vwallImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const [labView, setLabView] = useState<'stage' | 'vwall'>('stage')
+  const [feedsHubOpen, setFeedsHubOpen] = useState(false)
+  const feedsHubBodyId = useId()
   const [vwallWallLayout, setVwallWallLayout] = useState<'dense' | 'checker'>('dense')
   const [ytFeedId, setYtFeedId] = useState<string | null>(null)
   const [ytStreamErr, setYtStreamErr] = useState<string | null>(null)
@@ -170,8 +241,14 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const offHexRef = useRef<HTMLCanvasElement | null>(null)
   const layerWorkRef = useRef<HTMLCanvasElement | null>(null)
   const cameraMenuWrapRef = useRef<HTMLDivElement | null>(null)
-  const vwallMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const roomMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const audioMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const waveformMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const voiceMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const captionsMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const labViewNavRef = useRef<HTMLElement | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const cameraPreviewRef = useRef<HTMLVideoElement>(null)
   const capRef = useRef<HTMLCanvasElement>(null)
   const camRaf = useRef(0)
   const ytVideoRef = useRef<HTMLVideoElement>(null)
@@ -298,7 +375,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       off,
       hex,
       res,
-      eff === CAMERA_FEED ? (cameraFeedMode === 'color' ? 'color' : 'gray') : variation.decodeMode,
+      eff === CAMERA_FEED ? cameraFeedMode : variation.decodeMode,
       STAGE_PX,
     )
     postProcessCanvas(ctx, STAGE_PX, STAGE_PX, variation.invert, variation.scanlines)
@@ -418,6 +495,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         for (const t of (so as MediaStream).getTracks()) t.stop()
       }
       if (v) v.srcObject = null
+      const pv = cameraPreviewRef.current
+      if (pv) pv.srcObject = null
       return
     }
     const video = videoRef.current
@@ -440,6 +519,11 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         stream = s
         video.srcObject = s
         await video.play()
+        const pv = cameraPreviewRef.current
+        if (pv) {
+          pv.srcObject = s
+          void pv.play().catch(() => {})
+        }
         setCameraErr(null)
         setFeedOrder((prev) => [CAMERA_FEED, ...prev.filter((k) => k !== CAMERA_FEED)])
         setActiveIdx(0)
@@ -487,7 +571,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         try {
           const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
           const hex = luminanceHexFromImageData(id)
-          const frame: HexFrameMsg = {
+          const broadcastFrame: HexFrameMsg = {
             type: 'hexframe',
             hex,
             res: CAMERA_GRID,
@@ -495,8 +579,9 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
             feedKey: camFeedKey,
             t: performance.now(),
           }
-          ch.postMessage(frame)
-          if (isInRoom) publishHexToRoom(frame)
+          ingestRef.current({ ...broadcastFrame, feedKey: CAMERA_FEED })
+          ch.postMessage(broadcastFrame)
+          if (isInRoom) publishHexToRoom(broadcastFrame)
         } catch {
           /* skip */
         }
@@ -660,7 +745,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       stopped = true
       cancelAnimationFrame(wfRafRef.current)
     }
-  }, [showWaveform, streamAudioOn, spectrumSource, cameraMicOn])
+  }, [showWaveform, waveformMenuOpen, streamAudioOn, spectrumSource, cameraMicOn])
 
   useEffect(() => {
     if (!ytFeedId) return
@@ -686,14 +771,16 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         try {
           const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
           const hex = luminanceHexFromImageData(id)
-          ch.postMessage({
+          const frame: HexFrameMsg = {
             type: 'hexframe',
             hex,
             res: CAMERA_GRID,
             mode: 'gray',
             feedKey: fk,
             t: performance.now(),
-          })
+          }
+          ingestRef.current(frame)
+          ch.postMessage(frame)
         } catch {
           /* tainted canvas / CORS */
         }
@@ -1177,6 +1264,19 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     r.start()
   }, [])
 
+  const syncCameraPreview = useCallback(() => {
+    const pv = cameraPreviewRef.current
+    const v = videoRef.current
+    if (!pv) return
+    const so = cameraOn ? (v?.srcObject ?? null) : null
+    if (pv.srcObject !== so) pv.srcObject = so
+    if (so) void pv.play().catch(() => {})
+  }, [cameraOn])
+
+  useLayoutEffect(() => {
+    syncCameraPreview()
+  }, [syncCameraPreview, cameraFacing, cameraMenuOpen, cameraOn])
+
   const toggleCamera = useCallback(() => {
     if (cameraOn) {
       setFeedOrder((prev) => prev.filter((k) => k !== CAMERA_FEED))
@@ -1210,18 +1310,14 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     }
   }, [cameraMenuOpen])
 
-  const closeCameraMenu = useCallback(() => {
-    setCameraMenuOpen(false)
-  }, [])
-
   useEffect(() => {
-    if (!vwallMenuOpen) return
+    if (!roomMenuOpen) return
     const onDoc = (e: globalThis.MouseEvent) => {
-      const w = vwallMenuWrapRef.current
-      if (w && !w.contains(e.target as Node)) setVwallMenuOpen(false)
+      const w = roomMenuWrapRef.current
+      if (w && !w.contains(e.target as Node)) setRoomMenuOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setVwallMenuOpen(false)
+      if (e.key === 'Escape') setRoomMenuOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
@@ -1229,11 +1325,87 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       document.removeEventListener('mousedown', onDoc)
       document.removeEventListener('keydown', onKey)
     }
-  }, [vwallMenuOpen])
+  }, [roomMenuOpen])
 
-  const closeVwallMenu = useCallback(() => {
-    setVwallMenuOpen(false)
+  useEffect(() => {
+    if (!audioMenuOpen) return
+    const onDoc = (e: globalThis.MouseEvent) => {
+      const w = audioMenuWrapRef.current
+      if (w && !w.contains(e.target as Node)) setAudioMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAudioMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [audioMenuOpen])
+
+  useEffect(() => {
+    if (!waveformMenuOpen) return
+    const onDoc = (e: globalThis.MouseEvent) => {
+      const w = waveformMenuWrapRef.current
+      if (w && !w.contains(e.target as Node)) setWaveformMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setWaveformMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [waveformMenuOpen])
+
+  useEffect(() => {
+    if (!voiceMenuOpen) return
+    const onDoc = (e: globalThis.MouseEvent) => {
+      const w = voiceMenuWrapRef.current
+      if (w && !w.contains(e.target as Node)) setVoiceMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setVoiceMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [voiceMenuOpen])
+
+  useEffect(() => {
+    if (!captionsMenuOpen) return
+    const onDoc = (e: globalThis.MouseEvent) => {
+      const w = captionsMenuWrapRef.current
+      if (w && !w.contains(e.target as Node)) setCaptionsMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCaptionsMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [captionsMenuOpen])
+
+  const spectrumLive =
+    spectrumSource === 'mic' ? cameraMicOn : streamAudioOn && !!ytFeedId
+
+  const toggleLabView = useCallback((view: 'stage' | 'vwall') => {
+    setLabView(view)
   }, [])
+
+  useEffect(() => {
+    if (labView !== 'vwall') return
+    labViewNavRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [labView])
 
   const onStackPointer = useCallback(
     (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -1265,6 +1437,176 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
           ← Workspace
         </button>
         <div className="vfl-header-text">
+          <div className="vfl-header-intro">
+            <h1 className="vfl-title">Video feeds lab</h1>
+          </div>
+          <p className="vfl-lead">
+            An interactive wall of live video feeds — hex tiles on the rail, one feed on the main stage. Channel{' '}
+            <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>, carousel + pin,
+            and built-in <strong>ordered dither</strong>, <strong>halftone</strong>, and <strong>ASCII-density</strong>{' '}
+            passes (CPU canvas — same spirit as tools like{' '}
+            <a href="https://efecto.app/fx" target="_blank" rel="noreferrer">
+              Efecto
+            </a>
+            ,{' '}
+            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
+              DITHR
+            </a>
+            ). Optional <strong>depth stack</strong> layers roto-style falloff, a thermal plane that sweeps and
+            pulls forward in z, then dither weighted toward edges so dots read closest to the glass. Move the
+            mouse on the <strong>stage</strong> for key light; trail tiles use parallax depth.
+          </p>
+          <div className="vfl-credits">
+            <span>Inspiration</span>
+            <a href="https://efecto.app/fx?v=1&in=media&media=%252Fassets%252Fclose-up-of-young-woman-with-glasses.mp4&mpx=0&mpy=0&ms=1&ss=0" target="_blank" rel="noreferrer">
+              Efecto FX
+            </a>
+            <a
+              href="https://tympanus.net/codrops/2026/01/04/efecto-building-real-time-ascii-and-dithering-effects-with-webgl-shaders/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Codrops · Efecto
+            </a>
+            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
+              DITHR
+            </a>
+            <a
+              href="https://www.figma.com/community/file/1530841599105376021/razis-3d-ascii-dither-lab"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Figma · ASCII dither lab
+            </a>
+            <a href="https://gmunk.com/Information" target="_blank" rel="noreferrer">
+              GMUNK · Information
+            </a>
+          </div>
+          <section
+            className="vfl-panel vfl-header-video-bar"
+            aria-label="YouTube stream playback for hex sampling"
+          >
+            <div className="vfl-header-video-bar-inner">
+              <h2 className="vfl-panel-title vfl-header-video-title">Video</h2>
+              <div className="vfl-video-toolbar" role="toolbar" aria-label="Stream playback">
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost"
+                  disabled={!ytFeedId}
+                  aria-label={ytUiPaused ? 'Play' : 'Pause'}
+                  onClick={ytTogglePlay}
+                >
+                  {ytUiPaused ? 'Play' : 'Pause'}
+                </button>
+                <button type="button" className="ro-btn ro-btn-ghost" disabled={!ytFeedId} onClick={ytRestart}>
+                  Restart
+                </button>
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost"
+                  disabled={!ytFeedId}
+                  aria-label="Back ten seconds"
+                  onClick={() => ytSeekRel(-10)}
+                >
+                  −10s
+                </button>
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost"
+                  disabled={!ytFeedId}
+                  aria-label="Forward ten seconds"
+                  onClick={() => ytSeekRel(10)}
+                >
+                  +10s
+                </button>
+                <button type="button" className="ro-btn ro-btn-ghost" disabled={!pipSupported || !ytFeedId} onClick={ytTogglePip}>
+                  PiP
+                </button>
+              </div>
+              <div className="vfl-video-seek-wrap vfl-header-video-seek">
+                <label className="vfl-media-label vfl-video-seek-label" htmlFor="vfl-seek">
+                  Seek
+                </label>
+                <input
+                  id="vfl-seek"
+                  type="range"
+                  className="vfl-video-seek"
+                  disabled={!ytSeekable}
+                  min={0}
+                  max={Math.max(ytUiDur, 0.001)}
+                  step={Math.min(0.25, Math.max(0.05, ytUiDur / 800 || 0.05))}
+                  value={ytScrubDisplay ?? ytUiTime}
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(ytUiDur * 1000) / 1000}
+                  aria-valuenow={Math.round((ytScrubDisplay ?? ytUiTime) * 1000) / 1000}
+                  aria-valuetext={`${formatMediaClock(ytScrubDisplay ?? ytUiTime)} of ${formatMediaClock(ytUiDur)}`}
+                  onPointerDown={() => {
+                    ytScrubbingRef.current = true
+                  }}
+                  onChange={(e) => setYtScrubDisplay(Number(e.target.value))}
+                />
+                <span className="vfl-video-time muted" aria-live="polite">
+                  {formatMediaClock(ytScrubDisplay ?? ytUiTime)} /{' '}
+                  {ytSeekable ? formatMediaClock(ytUiDur) : ytFeedId ? '…' : '—'}
+                </span>
+              </div>
+              <div className="vfl-media-row vfl-media-row--rate vfl-header-video-rate">
+                <label className="vfl-media-label" htmlFor="vfl-rate">
+                  Speed
+                </label>
+                <select
+                  id="vfl-rate"
+                  className="vfl-video-rate-select"
+                  disabled={!ytFeedId}
+                  value={ytRate}
+                  onChange={(e) => setYtRate(Number(e.target.value))}
+                >
+                  {PLAYBACK_RATES.map((r) => (
+                    <option key={r} value={r}>
+                      {r === 1 ? '1×' : `${r}×`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label className="vfl-check vfl-header-video-check">
+                <input
+                  type="checkbox"
+                  checked={ytLoop}
+                  disabled={!ytFeedId}
+                  onChange={(e) => setYtLoop(e.target.checked)}
+                />
+                Loop
+              </label>
+              <label className="vfl-check vfl-header-video-check">
+                <input
+                  type="checkbox"
+                  checked={showYtPreview}
+                  disabled={!ytFeedId}
+                  onChange={(e) => setShowYtPreview(e.target.checked)}
+                />
+                Preview
+              </label>
+              <video
+                ref={ytVideoRef}
+                className={showYtPreview ? 'vfl-source-preview vfl-header-video-preview' : 'vfl-hidden-video'}
+                playsInline
+                muted={!streamAudioOn}
+                preload="auto"
+                aria-label={showYtPreview ? 'Mirror stream preview' : undefined}
+              />
+            </div>
+            <p className="vfl-header-video-hint muted">
+              Mirror element for hex sampling{ytFeedId ? (
+                <>
+                  {' '}
+                  — <code className="ro-drawer-code">{ytHexFeedKey(ytFeedId)}</code>
+                </>
+              ) : (
+                ' — add a YouTube feed in Add feeds'
+              )}
+              .
+            </p>
+          </section>
           <div className="vfl-header-kicker-effects">
             <p className="ro-kicker">Overview</p>
             <div className="vfl-header-camera-wrap">
@@ -1284,48 +1626,39 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                 {cameraMenuOpen ? (
                   <div
                     id={cameraMenuId}
-                    className="ro-ingest-live-hex-menu-panel"
+                    className="ro-ingest-live-hex-menu-panel vfl-camera-menu-panel"
                     role="menu"
                     aria-labelledby={cameraMenuTriggerId}
                   >
-                    <div className="ro-ingest-live-hex-menu-row">
+                    <div className="ro-ingest-live-hex-menu-row vfl-cam-menu-row--tight">
                       <span className="ro-ingest-live-hex-menu-label">Mic</span>
                       <button
                         type="button"
                         role="menuitem"
                         className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraMicOn ? ' is-active' : ''}`}
-                        onClick={() => {
-                          setCameraMicOn((m) => !m)
-                          closeCameraMenu()
-                        }}
+                        onClick={() => setCameraMicOn((m) => !m)}
                       >
                         {cameraMicOn ? 'On' : 'Off'}
                       </button>
                     </div>
-                    <div className="ro-ingest-live-hex-menu-row">
-                      <span className="ro-ingest-live-hex-menu-label">Camera</span>
+                    <div className="ro-ingest-live-hex-menu-row vfl-cam-menu-row--tight">
+                      <span className="ro-ingest-live-hex-menu-label">Cam</span>
                       <button
                         type="button"
                         role="menuitem"
-                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action"
-                        onClick={() => {
-                          toggleCamera()
-                          closeCameraMenu()
-                        }}
+                        className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraOn ? ' is-active' : ''}`}
+                        onClick={() => toggleCamera()}
                       >
                         {cameraOn ? 'Stop' : 'Start'}
                       </button>
                     </div>
-                    <div className="ro-ingest-live-hex-menu-row">
+                    <div className="ro-ingest-live-hex-menu-row vfl-cam-menu-row--tight">
                       <span className="ro-ingest-live-hex-menu-label">Lens</span>
                       <button
                         type="button"
                         role="menuitem"
                         className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraFacing === 'user' ? ' is-active' : ''}`}
-                        onClick={() => {
-                          setCameraFacing('user')
-                          closeCameraMenu()
-                        }}
+                        onClick={() => setCameraFacing('user')}
                       >
                         Selfie
                       </button>
@@ -1333,64 +1666,121 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                         type="button"
                         role="menuitem"
                         className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraFacing === 'environment' ? ' is-active' : ''}`}
-                        onClick={() => {
-                          setCameraFacing('environment')
-                          closeCameraMenu()
-                        }}
+                        onClick={() => setCameraFacing('environment')}
                       >
                         Rear
                       </button>
                     </div>
-                    <div className="ro-ingest-live-hex-menu-row">
+                    <div className="vfl-cam-menu-preview" aria-label="Camera preview">
+                      {cameraOn ? (
+                        <video
+                          ref={cameraPreviewRef}
+                          className="vfl-cam-menu-preview-video"
+                          style={{
+                            filter: `brightness(${imageBrightness}%) contrast(${imageContrast}%)`,
+                          }}
+                          playsInline
+                          muted
+                          autoPlay
+                        />
+                      ) : (
+                        <div className="vfl-cam-menu-preview-placeholder muted">
+                          <span>Preview</span>
+                          <span className="vfl-cam-menu-preview-hint">Start camera</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--looks">
                       <span className="ro-ingest-live-hex-menu-label">Look</span>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraFeedMode === 'color' ? ' is-active' : ''}`}
-                        onClick={() => {
-                          setCameraFeedMode((m) => (m === 'gray' ? 'color' : 'gray'))
-                          closeCameraMenu()
-                        }}
-                      >
-                        Thermal
-                      </button>
+                      {HEX_CAMERA_LOOKS.map((look) => (
+                        <button
+                          key={look.id}
+                          type="button"
+                          role="menuitem"
+                          className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraFeedMode === look.id ? ' is-active' : ''}`}
+                          aria-pressed={cameraFeedMode === look.id}
+                          onClick={() => setCameraFeedMode(look.id)}
+                        >
+                          {look.label}
+                        </button>
+                      ))}
                     </div>
                     <div
-                      className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block vfl-camera-image-tune"
+                      className="vfl-camera-menu-controls"
                       role="group"
-                      aria-label="Stage image brightness and contrast"
+                      aria-label="Camera tuning — image, depth, pose, and mic spectrum"
                     >
-                      <span className="ro-ingest-live-hex-menu-label">Image</span>
-                      <div className="vfl-media-row">
-                        <label className="vfl-media-label" htmlFor="vfl-cam-bri">
-                          Brightness
-                        </label>
+                      <p className="vfl-cam-section-label">Image</p>
+                      <CamMenuSlider
+                        id="vfl-cam-bri"
+                        label="Bri"
+                        min={40}
+                        max={160}
+                        step={1}
+                        value={imageBrightness}
+                        onChange={setImageBrightness}
+                        formatValue={(v) => `${v}%`}
+                      />
+                      <CamMenuSlider
+                        id="vfl-cam-con"
+                        label="Con"
+                        min={40}
+                        max={160}
+                        step={1}
+                        value={imageContrast}
+                        onChange={setImageContrast}
+                        formatValue={(v) => `${v}%`}
+                      />
+                      <label className="vfl-cam-check">
                         <input
-                          id="vfl-cam-bri"
-                          type="range"
-                          min={40}
-                          max={160}
-                          step={1}
-                          value={imageBrightness}
-                          onChange={(e) => setImageBrightness(Number(e.target.value))}
+                          type="checkbox"
+                          checked={depthZones}
+                          onChange={(e) => setDepthZones(e.target.checked)}
                         />
-                        <span className="vfl-media-val">{imageBrightness}%</span>
-                      </div>
-                      <div className="vfl-media-row">
-                        <label className="vfl-media-label" htmlFor="vfl-cam-con">
-                          Contrast
-                        </label>
+                        Depth stack (roto + thermal sweep + edge dither)
+                      </label>
+                      {depthZones ? (
+                        <div className="vfl-cam-depth-tune">
+                          {GSPLAT_MENU_SLIDERS.map((s) => (
+                            <CamMenuSlider
+                              key={s.key}
+                              id={`vfl-cam-gs-${s.key}`}
+                              label={s.label}
+                              min={s.min}
+                              max={s.max}
+                              step={s.step}
+                              value={gsplatEffective[s.key]}
+                              onChange={(v) => setGsplatField(s.key, v)}
+                              formatValue={(v) => v.toFixed(2)}
+                            />
+                          ))}
+                          <button
+                            type="button"
+                            className="ro-btn ro-btn-ghost vfl-cam-reset-btn"
+                            onClick={() => setGsplatTune({})}
+                          >
+                            Reset depth
+                          </button>
+                        </div>
+                      ) : null}
+                      <label className="vfl-cam-check">
                         <input
-                          id="vfl-cam-con"
-                          type="range"
-                          min={40}
-                          max={160}
-                          step={1}
-                          value={imageContrast}
-                          onChange={(e) => setImageContrast(Number(e.target.value))}
+                          type="checkbox"
+                          checked={poseEnabled}
+                          disabled={!cameraOn}
+                          onChange={(e) => {
+                            const on = e.target.checked
+                            setPoseEnabled(on)
+                            if (on) setPoseErr(null)
+                          }}
                         />
-                        <span className="vfl-media-val">{imageContrast}%</span>
-                      </div>
+                        Pose skeleton overlay
+                      </label>
+                      {poseErr ? (
+                        <p className="vfl-cam-inline-err muted" role="alert">
+                          {poseErr}
+                        </p>
+                      ) : null}
                     </div>
                     <p className="ro-ingest-live-hex-menu-hint muted">
                       Publishes{' '}
@@ -1406,93 +1796,403 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                 </span>
               ) : null}
             </div>
-            <div ref={vwallMenuWrapRef} className="vfl-header-vwall-wrap">
+            <div ref={audioMenuWrapRef} className="vfl-header-audio-wrap">
               <div className="ro-ingest-live-hex-details">
                 <button
                   type="button"
-                  id={vwallMenuTriggerId}
-                  className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary${vwallTiles.length > 0 ? ' is-lit' : ''}`}
-                  aria-label="VWall feeds menu"
-                  aria-expanded={vwallMenuOpen}
+                  id={audioMenuTriggerId}
+                  className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary${streamAudioOn && ytFeedId ? ' is-lit' : ''}`}
+                  aria-label="Stream audio menu"
+                  aria-expanded={audioMenuOpen}
                   aria-haspopup="menu"
-                  aria-controls={vwallMenuOpen ? vwallMenuId : undefined}
-                  onClick={() => setVwallMenuOpen((o) => !o)}
+                  aria-controls={audioMenuOpen ? audioMenuId : undefined}
+                  onClick={() => setAudioMenuOpen((o) => !o)}
                 >
-                  VWall
+                  Audio
                 </button>
-                {vwallMenuOpen ? (
+                {audioMenuOpen ? (
                   <div
-                    id={vwallMenuId}
-                    className="ro-ingest-live-hex-menu-panel vfl-header-vwall-menu"
+                    id={audioMenuId}
+                    className="ro-ingest-live-hex-menu-panel vfl-audio-menu-panel"
                     role="menu"
-                    aria-labelledby={vwallMenuTriggerId}
+                    aria-labelledby={audioMenuTriggerId}
                   >
-                    <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
-                      <label className="ro-ingest-live-hex-menu-label" htmlFor="vfl-header-vwall-search">
-                        Search
-                      </label>
+                    <p className="ro-ingest-live-hex-menu-hint muted">
+                      Routes the YouTube mirror through Web Audio (needs an active stream feed). Hex sampling is unchanged.
+                    </p>
+                    <label className="vfl-cam-check">
                       <input
-                        id="vfl-header-vwall-search"
-                        type="text"
-                        className="ro-ingest-live-hex-paste-input"
-                        placeholder="Images (empty = picsum)"
-                        value={vwallSearch}
-                        onChange={(e) => setVwallSearch(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            void loadVwallFeeds().then(() => closeVwallMenu())
-                          }
+                        type="checkbox"
+                        checked={streamAudioOn}
+                        disabled={!ytFeedId}
+                        onChange={(e) => setStreamAudioOn(e.target.checked)}
+                      />
+                      Stream audio (speakers)
+                    </label>
+                    <CamMenuSlider
+                      id="vfl-header-vol"
+                      label="Vol"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={Math.round(audioVol * 100)}
+                      onChange={(v) => {
+                        const vol = v / 100
+                        setAudioVol(vol)
+                        const g = streamGainRef.current
+                        if (g) g.gain.value = audioMuted ? 0 : vol
+                      }}
+                      formatValue={(v) => `${v}%`}
+                    />
+                    <label className="vfl-cam-check">
+                      <input
+                        type="checkbox"
+                        checked={audioMuted}
+                        disabled={!streamAudioOn || !ytFeedId}
+                        onChange={(e) => {
+                          const muted = e.target.checked
+                          setAudioMuted(muted)
+                          const g = streamGainRef.current
+                          if (g) g.gain.value = muted ? 0 : audioVol
                         }}
                       />
+                      Mute
+                    </label>
+                    {!ytFeedId ? (
+                      <p className="ro-ingest-live-hex-menu-hint muted" role="status">
+                        Add a YouTube feed (Add feeds) to enable stream audio.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div ref={waveformMenuWrapRef} className="vfl-header-waveform-wrap">
+              <div className="ro-ingest-live-hex-details">
+                <button
+                  type="button"
+                  id={waveformMenuTriggerId}
+                  className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary${showWaveform && spectrumLive ? ' is-lit' : ''}`}
+                  aria-label="Spectrum analyzer menu"
+                  aria-expanded={waveformMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={waveformMenuOpen ? waveformMenuId : undefined}
+                  onClick={() => setWaveformMenuOpen((o) => !o)}
+                >
+                  Waveform
+                </button>
+                {waveformMenuOpen ? (
+                  <div
+                    id={waveformMenuId}
+                    className="ro-ingest-live-hex-menu-panel vfl-waveform-menu-panel"
+                    role="menu"
+                    aria-labelledby={waveformMenuTriggerId}
+                  >
+                    <label className="vfl-cam-check">
+                      <input
+                        type="checkbox"
+                        checked={showWaveform}
+                        onChange={(e) => setShowWaveform(e.target.checked)}
+                      />
+                      Show spectrum analyzer
+                    </label>
+                    <label className="vfl-cam-check vfl-cam-check--inline">
+                      <span className="vfl-cam-ctrl-label vfl-cam-ctrl-label--static">Source</span>
+                      <select
+                        id="vfl-header-spec-src"
+                        className="vfl-cam-select"
+                        value={spectrumSource}
+                        disabled={!showWaveform}
+                        onChange={(e) => setSpectrumSource(e.target.value as 'stream' | 'mic')}
+                        aria-label="Spectrum analyzer source"
+                      >
+                        <option value="stream">YouTube stream</option>
+                        <option value="mic">Camera mic</option>
+                      </select>
+                    </label>
+                    <label className="vfl-cam-check vfl-cam-check--inline">
+                      <span className="vfl-cam-ctrl-label vfl-cam-ctrl-label--static">FFT</span>
+                      <select
+                        id="vfl-header-fft"
+                        className="vfl-cam-select"
+                        value={acousticFft}
+                        disabled={!showWaveform}
+                        onChange={(e) => setAcousticFft(Number(e.target.value) as 256 | 512 | 1024 | 2048)}
+                        aria-label="FFT size"
+                      >
+                        {[256, 512, 1024, 2048].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <CamMenuSlider
+                      id="vfl-header-ac-sm"
+                      label="Smooth"
+                      min={0}
+                      max={0.99}
+                      step={0.01}
+                      value={acousticSmooth}
+                      onChange={setAcousticSmooth}
+                      formatValue={(v) => v.toFixed(2)}
+                    />
+                    {showWaveform ? (
+                      <canvas
+                        ref={waveformCanvasRef}
+                        className="vfl-waveform-canvas"
+                        aria-label={
+                          spectrumSource === 'mic'
+                            ? cameraMicOn
+                              ? 'Camera microphone frequency spectrum'
+                              : 'Spectrum idle — turn on camera mic'
+                            : streamAudioOn
+                              ? 'Stream frequency spectrum'
+                              : 'Spectrum idle — enable stream audio'
+                        }
+                      />
+                    ) : null}
+                    {showWaveform && !spectrumLive ? (
+                      <p className="ro-ingest-live-hex-menu-hint muted" role="status">
+                        {spectrumSource === 'mic'
+                          ? 'Turn on camera mic in the Camera menu.'
+                          : 'Enable stream audio in the Audio menu (needs a YouTube feed).'}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div ref={voiceMenuWrapRef} className="vfl-header-voice-wrap">
+              <div className="ro-ingest-live-hex-details">
+                <button
+                  type="button"
+                  id={voiceMenuTriggerId}
+                  className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary${voiceBusy || voiceLog.trim() ? ' is-lit' : ''}`}
+                  aria-label="Voice assistant menu"
+                  aria-expanded={voiceMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={voiceMenuOpen ? voiceMenuId : undefined}
+                  onClick={() => setVoiceMenuOpen((o) => !o)}
+                >
+                  Voice
+                </button>
+                {voiceMenuOpen ? (
+                  <div
+                    id={voiceMenuId}
+                    className="ro-ingest-live-hex-menu-panel vfl-voice-menu-panel"
+                    role="menu"
+                    aria-labelledby={voiceMenuTriggerId}
+                  >
+                    <p className="ro-ingest-live-hex-menu-hint muted">
+                      Overview chat + browser <code className="ro-drawer-code">speechSynthesis</code>. Ask speaks the
+                      reply; Listen uses mic recognition.
+                    </p>
+                    <label className="vfl-voice-prompt-label muted" htmlFor="vfl-header-voice-prompt">
+                      Prompt for the model (then speak)
+                    </label>
+                    <textarea
+                      id="vfl-header-voice-prompt"
+                      className="vfl-caption-input vfl-voice-menu-prompt"
+                      rows={3}
+                      value={voicePrompt}
+                      onChange={(e) => setVoicePrompt(e.target.value)}
+                      disabled={voiceBusy}
+                    />
+                    <div className="vfl-voice-actions">
+                      <button type="button" className="ro-btn ro-btn-ghost" disabled={voiceBusy} onClick={runVoiceAsk}>
+                        {voiceBusy ? 'Asking…' : 'Ask'}
+                      </button>
+                      <button type="button" className="ro-btn ro-btn-ghost" disabled={voiceBusy} onClick={runListenOnce}>
+                        Listen
+                      </button>
+                    </div>
+                    {voiceLog.trim() ? (
+                      <p className="vfl-voice-log muted" aria-live="polite">
+                        {voiceLog}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div ref={captionsMenuWrapRef} className="vfl-header-captions-wrap">
+              <div className="ro-ingest-live-hex-details">
+                <button
+                  type="button"
+                  id={captionsMenuTriggerId}
+                  className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary${captionsOn && captionText.trim() ? ' is-lit' : ''}`}
+                  aria-label="Stage captions menu"
+                  aria-expanded={captionsMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={captionsMenuOpen ? captionsMenuId : undefined}
+                  onClick={() => setCaptionsMenuOpen((o) => !o)}
+                >
+                  Captions
+                </button>
+                {captionsMenuOpen ? (
+                  <div
+                    id={captionsMenuId}
+                    className="ro-ingest-live-hex-menu-panel vfl-captions-menu-panel"
+                    role="menu"
+                    aria-labelledby={captionsMenuTriggerId}
+                  >
+                    <p className="ro-ingest-live-hex-menu-hint muted">
+                      Burn-in style lines over the stage canvas (preview while you type).
+                    </p>
+                    <label className="vfl-cam-check">
+                      <input
+                        type="checkbox"
+                        checked={captionsOn}
+                        onChange={(e) => setCaptionsOn(e.target.checked)}
+                      />
+                      Overlay on stage
+                    </label>
+                    <textarea
+                      id="vfl-header-caption-text"
+                      className="vfl-caption-input vfl-captions-menu-input"
+                      rows={4}
+                      placeholder="Caption lines shown over the stage (preview / burn-in style)"
+                      value={captionText}
+                      onChange={(e) => setCaptionText(e.target.value)}
+                      aria-label="Caption overlay text"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div ref={roomMenuWrapRef} className="vfl-header-room-wrap">
+              <div className="ro-ingest-live-hex-details">
+                <button
+                  type="button"
+                  id={roomMenuTriggerId}
+                  className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary vfl-header-room-summary${isInRoom || roomLinkStatus !== 'off' ? ' is-lit' : ''}`}
+                  aria-label="Room link menu"
+                  aria-expanded={roomMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={roomMenuOpen ? roomMenuId : undefined}
+                  title={ROOM_LINK_STATUS_TITLE[roomLinkStatus]}
+                  onClick={() => setRoomMenuOpen((o) => !o)}
+                >
+                  <RoomLinkStatusLight status={roomLinkStatus} />
+                  Room
+                </button>
+                {roomMenuOpen ? (
+                  <div
+                    id={roomMenuId}
+                    className="ro-ingest-live-hex-menu-panel vfl-room-menu-panel"
+                    role="menu"
+                    aria-labelledby={roomMenuTriggerId}
+                  >
+                    {isInRoom ? (
+                      <p className="vfl-room-menu-status muted" role="status">
+                        In <code className="ro-drawer-code">{roomId}</code> as{' '}
+                        <code className="ro-drawer-code">{peerId}</code>
+                      </p>
+                    ) : (
+                      <p className="vfl-room-menu-status muted">
+                        Solo — global channel <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>
+                      </p>
+                    )}
+                    <div className="ro-ingest-live-hex-menu-row">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action"
+                        onClick={() => void startNewRoom()}
+                      >
+                        New room
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action"
+                        onClick={() => void copyRoomLink()}
+                      >
+                        Copy link
+                      </button>
                     </div>
                     <div className="ro-ingest-live-hex-menu-row">
                       <button
                         type="button"
                         role="menuitem"
                         className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action"
-                        disabled={vwallBusy}
+                        disabled={feedOrder.length <= 1}
+                        title="Jump carousel to a random feed"
                         onClick={() => {
-                          void loadVwallFeeds().then(() => closeVwallMenu())
+                          if (feedOrder.length <= 1) return
+                          setActiveIdx(Math.floor(Math.random() * feedOrder.length))
                         }}
                       >
-                        {vwallBusy ? 'Loading…' : 'Load feeds'}
+                        Shuffle feed
+                      </button>
+                    </div>
+                    <div className="ro-ingest-live-hex-paste-row">
+                      <input
+                        type="text"
+                        className="ro-ingest-live-hex-paste-input"
+                        placeholder="#vfl-room=… or full lab URL"
+                        value={roomLinkPaste}
+                        onChange={(e) => setRoomLinkPaste(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void joinRoomFromPaste(roomLinkPaste)
+                        }}
+                        aria-label="Room invite link"
+                      />
+                      <button
+                        type="button"
+                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-paste-btn"
+                        title="Create a new room and put its invite link here"
+                        onClick={() => {
+                          void (async () => {
+                            const url = await startNewRoom()
+                            if (url) setRoomLinkPaste(url)
+                          })()
+                        }}
+                      >
+                        Make
                       </button>
                       <button
                         type="button"
-                        role="menuitem"
-                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action"
-                        disabled={vwallTiles.length === 0}
-                        onClick={() => {
-                          clearVwallFeeds()
-                          closeVwallMenu()
-                        }}
+                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-paste-btn"
+                        onClick={() => void joinRoomFromPaste(roomLinkPaste)}
                       >
-                        Clear
+                        Join
                       </button>
                     </div>
-                    <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
-                      <a
-                        href="https://fornevercollective.github.io/vwall/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-wide"
-                      >
-                        Open VWall wall…
-                      </a>
-                    </div>
-                    {vwallTiles.length > 0 ? (
-                      <p className="ro-ingest-live-hex-menu-hint muted" role="status">
-                        {vwallTiles.length} feeds on the wall
-                      </p>
+                    {roomShareUrl ? (
+                      <input
+                        type="text"
+                        className="ro-ingest-live-hex-paste-input vfl-room-menu-share-url"
+                        readOnly
+                        value={roomShareUrl}
+                        aria-label="Current room share URL"
+                        onFocus={(e) => e.target.select()}
+                      />
                     ) : null}
-                    {vwallErr ? (
+                    {roomErr ? (
                       <p className="ro-ingest-live-hex-menu-hint muted" role="alert">
-                        {vwallErr}
+                        {roomErr}
                       </p>
                     ) : null}
+                    <p className="ro-ingest-live-hex-menu-hint muted">
+                      Hex on <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>
+                    </p>
                   </div>
                 ) : null}
               </div>
+            </div>
+            <div className="vfl-header-vwall-wrap">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={labView === 'vwall'}
+                className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary${labView === 'vwall' ? ' is-active' : ''}${vwallTiles.length > 0 ? ' is-lit' : ''}`}
+                aria-label={labView === 'vwall' ? 'Show stage view' : 'Show VWall feed mosaic'}
+                onClick={() => toggleLabView(labView === 'vwall' ? 'stage' : 'vwall')}
+              >
+                VWall
+              </button>
             </div>
             <section className="vfl-panel vfl-stage-effects vfl-header-effects" aria-label="Effects preset">
               <div className="vfl-effects-row">
@@ -1517,205 +2217,33 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                     </button>
                   </div>
                 </div>
-                <label className="vfl-header-depth-check muted">
-                  <input
-                    type="checkbox"
-                    checked={depthZones}
-                    onChange={(e) => setDepthZones(e.target.checked)}
-                  />
-                  Depth stack — roto lighting (back), thermal sweep + float plane (mid), dither on
-                  edges / near plane (front). Pointer on stage moves the key light; ~3× CPU.
-                </label>
-                {depthZones ? (
-                  <div className="vfl-gsplat-tune" aria-label="Depth proxy tuning">
-                    <p className="vfl-media-hint muted vfl-gsplat-tune-intro">
-                      CPU depth proxy (gsplat-inspired weights) — optimizable for experiments.
-                    </p>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-r">
-                        Radial
-                      </label>
-                      <input
-                        id="vfl-gs-r"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={gsplatEffective.radial}
-                        onChange={(e) => setGsplatField('radial', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.radial.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-v">
-                        Vertical
-                      </label>
-                      <input
-                        id="vfl-gs-v"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={gsplatEffective.vertical}
-                        onChange={(e) => setGsplatField('vertical', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.vertical.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-l">
-                        Luminance
-                      </label>
-                      <input
-                        id="vfl-gs-l"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={gsplatEffective.luminance}
-                        onChange={(e) => setGsplatField('luminance', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.luminance.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-zp">
-                        zPow
-                      </label>
-                      <input
-                        id="vfl-gs-zp"
-                        type="range"
-                        min={0.4}
-                        max={2.8}
-                        step={0.02}
-                        value={gsplatEffective.zPow}
-                        onChange={(e) => setGsplatField('zPow', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.zPow.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-sh">
-                        Sweep Hz
-                      </label>
-                      <input
-                        id="vfl-gs-sh"
-                        type="range"
-                        min={0.2}
-                        max={3.5}
-                        step={0.05}
-                        value={gsplatEffective.sweepHz}
-                        onChange={(e) => setGsplatField('sweepHz', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.sweepHz.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-sm">
-                        Sweep zM
-                      </label>
-                      <input
-                        id="vfl-gs-sm"
-                        type="range"
-                        min={1}
-                        max={9}
-                        step={0.05}
-                        value={gsplatEffective.sweepZM}
-                        onChange={(e) => setGsplatField('sweepZM', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.sweepZM.toFixed(2)}</span>
-                    </div>
-                    <button type="button" className="ro-btn ro-btn-ghost vfl-gsplat-reset" onClick={() => setGsplatTune({})}>
-                      Reset depth proxy
-                    </button>
-                  </div>
-                ) : null}
             </section>
           </div>
-          <section className="vfl-panel vfl-feeds-hub" aria-label="Add and share video feeds for the wall">
-            <h2 className="vfl-panel-title vfl-feeds-hub-title">Add feeds</h2>
-            <p className="vfl-feeds-lead muted">
-              Stack camera, streams, and image tiles into one interactive wall — browse with the feed strip,
-              pin a source on the stage, and share a <code className="ro-drawer-code">#vfl-room=</code> link so other
-              tabs can post hex frames on{' '}
-              <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>.
-            </p>
-            <div className="vfl-feeds-grid">
-              <div className="vfl-feeds-block">
-                <h3 className="vfl-feeds-block-title vfl-room-link-label">
-                  <RoomLinkStatusLight status={roomLinkStatus} />
-                  Room
-                </h3>
-                {isInRoom ? (
-                  <p className="vfl-feeds-status muted" role="status">
-                    In <code className="ro-drawer-code">{roomId}</code> as{' '}
-                    <code className="ro-drawer-code">{peerId}</code>
-                  </p>
-                ) : (
-                  <p className="vfl-feeds-status muted">Solo — global hex channel until you create or join a room.</p>
-                )}
-                <div className="vfl-feeds-actions">
-                  <button type="button" className="ro-btn ro-btn-ghost" onClick={() => void startNewRoom()}>
-                    New room
-                  </button>
-                  <button type="button" className="ro-btn ro-btn-ghost" onClick={() => void copyRoomLink()}>
-                    Copy invite link
-                  </button>
-                  <button
-                    type="button"
-                    className="ro-btn ro-btn-ghost"
-                    disabled={feedOrder.length <= 1}
-                    onClick={() => {
-                      if (feedOrder.length <= 1) return
-                      setActiveIdx(Math.floor(Math.random() * feedOrder.length))
-                    }}
-                    title="Jump carousel to a random feed on the wall"
-                  >
-                    Shuffle feed
-                  </button>
-                </div>
-                <div className="vfl-yt-stream-row">
-                  <input
-                    type="text"
-                    className="vfl-yt-stream-input"
-                    placeholder="Paste #vfl-room=… or full lab URL"
-                    value={roomLinkPaste}
-                    onChange={(e) => setRoomLinkPaste(e.target.value)}
-                    aria-label="Room invite link"
-                  />
-                  <button
-                    type="button"
-                    className="ro-btn ro-btn-ghost"
-                    title="Create a new room and put its invite link here"
-                    onClick={() => {
-                      void (async () => {
-                        const url = await startNewRoom()
-                        if (url) setRoomLinkPaste(url)
-                      })()
-                    }}
-                  >
-                    Make
-                  </button>
-                  <button
-                    type="button"
-                    className="ro-btn ro-btn-ghost"
-                    onClick={() => void joinRoomFromPaste(roomLinkPaste)}
-                  >
-                    Join room
-                  </button>
-                </div>
-                {roomShareUrl ? (
-                  <input
-                    type="text"
-                    className="vfl-yt-stream-input vfl-feeds-share-url"
-                    readOnly
-                    value={roomShareUrl}
-                    aria-label="Current room share URL"
-                    onFocus={(e) => e.target.select()}
-                  />
-                ) : null}
-                {roomErr ? (
-                  <p className="vfl-yt-stream-err muted" role="alert">
-                    {roomErr}
-                  </p>
-                ) : null}
-              </div>
+          <section
+            className={`vfl-panel vfl-feeds-hub${feedsHubOpen ? '' : ' vfl-feeds-hub--collapsed'}`}
+            aria-label="Add and share video feeds for the wall"
+          >
+            <div className="vfl-feeds-hub-head">
+              <h2 className="vfl-panel-title vfl-feeds-hub-title">Add feeds</h2>
+              <button
+                type="button"
+                className="ro-btn ro-btn-ghost vfl-feeds-hub-toggle"
+                aria-expanded={feedsHubOpen}
+                aria-controls={feedsHubBodyId}
+                onClick={() => setFeedsHubOpen((o) => !o)}
+              >
+                {feedsHubOpen ? 'Collapse' : 'Expand'}
+              </button>
+            </div>
+            {feedsHubOpen ? (
+              <div id={feedsHubBodyId} className="vfl-feeds-hub-body">
+                <p className="vfl-feeds-lead muted">
+                  Stack camera, streams, and image tiles into one interactive wall — browse with the feed strip and pin a
+                  source on the stage. Use header <strong>Room</strong> for{' '}
+                  <code className="ro-drawer-code">#vfl-room=</code> invite links on{' '}
+                  <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>.
+                </p>
+                <div className="vfl-feeds-grid">
               <div className="vfl-feeds-block">
                 <h3 className="vfl-feeds-block-title">Video feeds</h3>
                 <p className="vfl-yt-stream-hint muted">
@@ -1895,100 +2423,20 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                   </div>
                 ) : null}
               </div>
-              <div className="vfl-feeds-block vfl-feeds-chat">
-                <h3 className="vfl-feeds-block-title">Room chat</h3>
-                <div className="vfl-chat-log" role="log" aria-live="polite" aria-relevant="additions">
-                  {!isInRoom ? (
-                    <p className="muted vfl-chat-empty">Join or create a room to chat with peers on the same link.</p>
-                  ) : chatLog.length === 0 ? (
-                    <p className="muted vfl-chat-empty">No messages yet — say hi.</p>
-                  ) : (
-                    chatLog.map((m) => (
-                      <div key={`${m.from}-${m.t}-${m.text}`} className="vfl-chat-line">
-                        <code className="ro-drawer-code vfl-chat-from">{m.from}</code>
-                        <span>{m.text}</span>
-                      </div>
-                    ))
-                  )}
                 </div>
-                <form
-                  className="vfl-chat-form"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    if (!chatDraft.trim() || !isInRoom) return
-                    postChat(chatDraft)
-                    setChatDraft('')
-                  }}
-                >
-                  <input
-                    type="text"
-                    className="vfl-yt-stream-input"
-                    placeholder={isInRoom ? 'Message room…' : 'Join a room to chat'}
-                    value={chatDraft}
-                    disabled={!isInRoom}
-                    onChange={(e) => setChatDraft(e.target.value)}
-                    aria-label="Room chat message"
-                  />
-                  <button type="submit" className="ro-btn ro-btn-ghost" disabled={!isInRoom || !chatDraft.trim()}>
-                    Send
-                  </button>
-                </form>
               </div>
-            </div>
+            ) : null}
           </section>
-          <h1 className="vfl-title">Video feeds lab</h1>
-          <p className="vfl-lead">
-            An interactive wall of live video feeds — hex tiles on the rail, one feed on the main stage. Channel{' '}
-            <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>, carousel + pin,
-            and built-in <strong>ordered dither</strong>, <strong>halftone</strong>, and <strong>ASCII-density</strong>{' '}
-            passes (CPU canvas — same spirit as tools like{' '}
-            <a href="https://efecto.app/fx" target="_blank" rel="noreferrer">
-              Efecto
-            </a>
-            ,{' '}
-            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
-              DITHR
-            </a>
-            ). Optional <strong>depth stack</strong> layers roto-style falloff, a thermal plane that sweeps and
-            pulls forward in z, then dither weighted toward edges so dots read closest to the glass. Move the
-            mouse on the <strong>stage</strong> for key light; trail tiles use parallax depth.
-          </p>
-          <div className="vfl-credits">
-            <span>Inspiration</span>
-            <a href="https://efecto.app/fx?v=1&in=media&media=%252Fassets%252Fclose-up-of-young-woman-with-glasses.mp4&mpx=0&mpy=0&ms=1&ss=0" target="_blank" rel="noreferrer">
-              Efecto FX
-            </a>
-            <a
-              href="https://tympanus.net/codrops/2026/01/04/efecto-building-real-time-ascii-and-dithering-effects-with-webgl-shaders/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Codrops · Efecto
-            </a>
-            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
-              DITHR
-            </a>
-            <a
-              href="https://www.figma.com/community/file/1530841599105376021/razis-3d-ascii-dither-lab"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Figma · ASCII dither lab
-            </a>
-            <a href="https://gmunk.com/Information" target="_blank" rel="noreferrer">
-              GMUNK · Information
-            </a>
-          </div>
         </div>
       </header>
 
-      <nav className="vfl-lab-view-nav" aria-label="Lab view">
+      <nav ref={labViewNavRef} className="vfl-lab-view-nav" aria-label="Lab view">
         <button
           type="button"
           role="tab"
           aria-selected={labView === 'stage'}
           className={`ro-btn ro-btn-ghost${labView === 'stage' ? ' is-active' : ''}`}
-          onClick={() => setLabView('stage')}
+          onClick={() => toggleLabView('stage')}
         >
           Stage
         </button>
@@ -1997,7 +2445,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
           role="tab"
           aria-selected={labView === 'vwall'}
           className={`ro-btn ro-btn-ghost${labView === 'vwall' ? ' is-active' : ''}`}
-          onClick={() => setLabView('vwall')}
+          onClick={() => toggleLabView('vwall')}
         >
           VWall
         </button>
@@ -2007,6 +2455,47 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       </nav>
 
       <div className={`vfl-layout${labView === 'vwall' ? ' vfl-layout--vwall' : ''}`}>
+        <aside className="vfl-shoulder-column" aria-label="Room chat sidebar">
+          <section className="vfl-panel vfl-shoulder-chat" aria-label="Room chat">
+            <h2 className="vfl-panel-title">Room chat</h2>
+            <div className="vfl-chat-log" role="log" aria-live="polite" aria-relevant="additions">
+              {!isInRoom ? (
+                <p className="muted vfl-chat-empty">Join or create a room (header Room) to chat on the same link.</p>
+              ) : chatLog.length === 0 ? (
+                <p className="muted vfl-chat-empty">No messages yet — say hi.</p>
+              ) : (
+                chatLog.map((m) => (
+                  <div key={`${m.from}-${m.t}-${m.text}`} className="vfl-chat-line">
+                    <code className="ro-drawer-code vfl-chat-from">{m.from}</code>
+                    <span>{m.text}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <form
+              className="vfl-chat-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (!chatDraft.trim() || !isInRoom) return
+                postChat(chatDraft)
+                setChatDraft('')
+              }}
+            >
+              <input
+                type="text"
+                className="vfl-yt-stream-input vfl-shoulder-chat-input"
+                placeholder={isInRoom ? 'Message room…' : 'Join a room to chat'}
+                value={chatDraft}
+                disabled={!isInRoom}
+                onChange={(e) => setChatDraft(e.target.value)}
+                aria-label="Room chat message"
+              />
+              <button type="submit" className="ro-btn ro-btn-ghost" disabled={!isInRoom || !chatDraft.trim()}>
+                Send
+              </button>
+            </form>
+          </section>
+        </aside>
         <main className="vfl-main">
           {labView === 'vwall' ? (
             <section className="vfl-vwall-pane" aria-label="VWall — all live feeds">
@@ -2082,7 +2571,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                 onSelectFeed={(fk) => {
                   const idx = feedOrder.indexOf(fk)
                   if (idx >= 0) setActiveIdx(idx)
-                  setLabView('stage')
+                  toggleLabView('stage')
                 }}
               />
               <p className="vfl-vwall-hint muted">
@@ -2150,308 +2639,6 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
               thumbSeq={feedThumbSeq}
               offThumbRef={bumpOffRef}
             />
-            <section
-              className="vfl-panel vfl-media-controls"
-              aria-label="Video transport, waveform, captions, image, and stream audio"
-            >
-                <div className="vfl-media-grid">
-                  <div className="vfl-media-block vfl-media-block--video">
-                    <h3 className="vfl-media-block-title">Video</h3>
-                    <p className="vfl-media-hint muted">
-                      Controls the hidden mirror element used for hex sampling; optional preview shows the same decode as the
-                      stage source.
-                    </p>
-                    <div className="vfl-video-toolbar" role="toolbar" aria-label="Stream playback">
-                      <button
-                        type="button"
-                        className="ro-btn ro-btn-ghost"
-                        disabled={!ytFeedId}
-                        aria-label={ytUiPaused ? 'Play' : 'Pause'}
-                        onClick={ytTogglePlay}
-                      >
-                        {ytUiPaused ? 'Play' : 'Pause'}
-                      </button>
-                      <button type="button" className="ro-btn ro-btn-ghost" disabled={!ytFeedId} onClick={ytRestart}>
-                        Restart
-                      </button>
-                      <button
-                        type="button"
-                        className="ro-btn ro-btn-ghost"
-                        disabled={!ytFeedId}
-                        aria-label="Back ten seconds"
-                        onClick={() => ytSeekRel(-10)}
-                      >
-                        −10s
-                      </button>
-                      <button
-                        type="button"
-                        className="ro-btn ro-btn-ghost"
-                        disabled={!ytFeedId}
-                        aria-label="Forward ten seconds"
-                        onClick={() => ytSeekRel(10)}
-                      >
-                        +10s
-                      </button>
-                      <button type="button" className="ro-btn ro-btn-ghost" disabled={!pipSupported || !ytFeedId} onClick={ytTogglePip}>
-                        PiP
-                      </button>
-                    </div>
-                    <div className="vfl-video-seek-wrap">
-                      <label className="vfl-media-label vfl-video-seek-label" htmlFor="vfl-seek">
-                        Seek
-                      </label>
-                      <input
-                        id="vfl-seek"
-                        type="range"
-                        className="vfl-video-seek"
-                        disabled={!ytSeekable}
-                        min={0}
-                        max={Math.max(ytUiDur, 0.001)}
-                        step={Math.min(0.25, Math.max(0.05, ytUiDur / 800 || 0.05))}
-                        value={ytScrubDisplay ?? ytUiTime}
-                        aria-valuemin={0}
-                        aria-valuemax={Math.round(ytUiDur * 1000) / 1000}
-                        aria-valuenow={Math.round((ytScrubDisplay ?? ytUiTime) * 1000) / 1000}
-                        aria-valuetext={`${formatMediaClock(ytScrubDisplay ?? ytUiTime)} of ${formatMediaClock(ytUiDur)}`}
-                        onPointerDown={() => {
-                          ytScrubbingRef.current = true
-                        }}
-                        onChange={(e) => setYtScrubDisplay(Number(e.target.value))}
-                      />
-                      <span className="vfl-video-time muted" aria-live="polite">
-                        {formatMediaClock(ytScrubDisplay ?? ytUiTime)} /{' '}
-                        {ytSeekable ? formatMediaClock(ytUiDur) : ytFeedId ? '…' : '—'}
-                      </span>
-                    </div>
-                    <div className="vfl-media-row vfl-media-row--rate">
-                      <label className="vfl-media-label" htmlFor="vfl-rate">
-                        Speed
-                      </label>
-                      <select
-                        id="vfl-rate"
-                        className="vfl-video-rate-select"
-                        disabled={!ytFeedId}
-                        value={ytRate}
-                        onChange={(e) => setYtRate(Number(e.target.value))}
-                      >
-                        {PLAYBACK_RATES.map((r) => (
-                          <option key={r} value={r}>
-                            {r === 1 ? '1×' : `${r}×`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <label className="vfl-check">
-                      <input
-                        type="checkbox"
-                        checked={ytLoop}
-                        disabled={!ytFeedId}
-                        onChange={(e) => setYtLoop(e.target.checked)}
-                      />
-                      Loop
-                    </label>
-                    <label className="vfl-check">
-                      <input
-                        type="checkbox"
-                        checked={showYtPreview}
-                        disabled={!ytFeedId}
-                        onChange={(e) => setShowYtPreview(e.target.checked)}
-                      />
-                      Show mirror preview (same element as sampling)
-                    </label>
-                    <video
-                      ref={ytVideoRef}
-                      className={showYtPreview ? 'vfl-source-preview' : 'vfl-hidden-video'}
-                      playsInline
-                      muted={!streamAudioOn}
-                      preload="auto"
-                      aria-label={showYtPreview ? 'Mirror stream preview' : undefined}
-                    />
-                  </div>
-                  <div className="vfl-media-block">
-                    <h3 className="vfl-media-block-title">Audio</h3>
-                    <p className="vfl-media-hint muted">
-                      Routes the YouTube mirror element through Web Audio (needs an active stream feed). Hex sampling stays on the same element.
-                    </p>
-                    <label className="vfl-check">
-                      <input
-                        type="checkbox"
-                        checked={streamAudioOn}
-                        disabled={!ytFeedId}
-                        onChange={(e) => setStreamAudioOn(e.target.checked)}
-                      />
-                      Stream audio (speakers)
-                    </label>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-vol">
-                        Volume
-                      </label>
-                      <input
-                        id="vfl-vol"
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={Math.round(audioVol * 100)}
-                        disabled={!streamAudioOn || !ytFeedId || audioMuted}
-                        onChange={(e) => {
-                          const vol = Number(e.target.value) / 100
-                          setAudioVol(vol)
-                          const g = streamGainRef.current
-                          if (g) g.gain.value = audioMuted ? 0 : vol
-                        }}
-                        aria-valuetext={`${Math.round(audioVol * 100)} percent`}
-                      />
-                    </div>
-                    <label className="vfl-check">
-                      <input
-                        type="checkbox"
-                        checked={audioMuted}
-                        disabled={!streamAudioOn || !ytFeedId}
-                        onChange={(e) => {
-                          const muted = e.target.checked
-                          setAudioMuted(muted)
-                          const g = streamGainRef.current
-                          if (g) g.gain.value = muted ? 0 : audioVol
-                        }}
-                      />
-                      Mute
-                    </label>
-                  </div>
-                  <div className="vfl-media-block">
-                    <h3 className="vfl-media-block-title">Waveform</h3>
-                    <label className="vfl-check">
-                      <input type="checkbox" checked={showWaveform} onChange={(e) => setShowWaveform(e.target.checked)} />
-                      Show spectrum analyzer
-                    </label>
-                    <div className="vfl-media-row vfl-media-row--spectrum-source">
-                      <label className="vfl-media-label" htmlFor="vfl-spec-src">
-                        Source
-                      </label>
-                      <select
-                        id="vfl-spec-src"
-                        className="vfl-video-rate-select"
-                        value={spectrumSource}
-                        onChange={(e) => setSpectrumSource(e.target.value as 'stream' | 'mic')}
-                        aria-label="Spectrum analyzer source"
-                      >
-                        <option value="stream">YouTube stream</option>
-                        <option value="mic">Camera mic</option>
-                      </select>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-fft">
-                        FFT size
-                      </label>
-                      <select
-                        id="vfl-fft"
-                        className="vfl-video-rate-select"
-                        value={acousticFft}
-                        onChange={(e) => setAcousticFft(Number(e.target.value) as 256 | 512 | 1024 | 2048)}
-                      >
-                        {[256, 512, 1024, 2048].map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-ac-sm">
-                        Smoothing
-                      </label>
-                      <input
-                        id="vfl-ac-sm"
-                        type="range"
-                        min={0}
-                        max={0.99}
-                        step={0.01}
-                        value={acousticSmooth}
-                        onChange={(e) => setAcousticSmooth(Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{acousticSmooth.toFixed(2)}</span>
-                    </div>
-                    <canvas
-                      ref={waveformCanvasRef}
-                      className="vfl-waveform-canvas"
-                      aria-label={
-                        spectrumSource === 'mic'
-                          ? cameraMicOn
-                            ? 'Camera microphone frequency spectrum'
-                            : 'Spectrum idle — turn on camera mic'
-                          : streamAudioOn
-                            ? 'Stream frequency spectrum'
-                            : 'Spectrum idle — enable stream audio'
-                      }
-                    />
-                  </div>
-                  <div className="vfl-media-block vfl-media-block--camera-lab">
-                    <h3 className="vfl-media-block-title">Camera + voice</h3>
-                    <p className="vfl-media-hint muted">
-                      Pose overlay uses MediaPipe (CDN). Voice uses the same chat route as Overview; TTS uses the browser{' '}
-                      <code className="ro-drawer-code">speechSynthesis</code> API. Turn on Camera → Mic for spectrum and
-                      speech recognition.
-                    </p>
-                    <label className="vfl-check">
-                      <input
-                        type="checkbox"
-                        checked={poseEnabled}
-                        disabled={!cameraOn}
-                        onChange={(e) => {
-                          const on = e.target.checked
-                          setPoseEnabled(on)
-                          if (on) setPoseErr(null)
-                        }}
-                      />
-                      Pose skeleton overlay (needs camera)
-                    </label>
-                    {poseErr ? (
-                      <p className="vfl-pose-err muted" role="alert">
-                        {poseErr}
-                      </p>
-                    ) : null}
-                    <label className="vfl-voice-prompt-label muted" htmlFor="vfl-voice-prompt">
-                      Prompt for the model (then speak)
-                    </label>
-                    <textarea
-                      id="vfl-voice-prompt"
-                      className="vfl-caption-input"
-                      rows={2}
-                      value={voicePrompt}
-                      onChange={(e) => setVoicePrompt(e.target.value)}
-                      disabled={voiceBusy}
-                    />
-                    <div className="vfl-voice-actions">
-                      <button type="button" className="ro-btn ro-btn-ghost" disabled={voiceBusy} onClick={runVoiceAsk}>
-                        {voiceBusy ? 'Asking…' : 'Ask (speak reply)'}
-                      </button>
-                      <button type="button" className="ro-btn ro-btn-ghost" disabled={voiceBusy} onClick={runListenOnce}>
-                        Listen once
-                      </button>
-                    </div>
-                    {voiceLog.trim() ? (
-                      <p className="vfl-voice-log muted" aria-live="polite">
-                        {voiceLog}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="vfl-media-block">
-                    <h3 className="vfl-media-block-title">Captions</h3>
-                    <label className="vfl-check">
-                      <input type="checkbox" checked={captionsOn} onChange={(e) => setCaptionsOn(e.target.checked)} />
-                      Overlay on stage
-                    </label>
-                    <textarea
-                      className="vfl-caption-input"
-                      rows={3}
-                      placeholder="Caption lines shown over the stage (preview / burn-in style)"
-                      value={captionText}
-                      onChange={(e) => setCaptionText(e.target.value)}
-                      aria-label="Caption overlay text"
-                    />
-                  </div>
-                </div>
-              </section>
           </div>
           )}
 
