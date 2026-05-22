@@ -44,7 +44,7 @@ export function useLiveHexRoom(opts: UseLiveHexRoomOptions = {}) {
   const [roomErr, setRoomErr] = useState<string | null>(null)
   const [chatLog, setChatLog] = useState<LiveHexChatMsg[]>([])
 
-  const applyRoomPayload = useCallback(async (data: VflRoomSharePayload) => {
+  const applyRoomPayload = useCallback(async (data: VflRoomSharePayload): Promise<string | null> => {
     const peer = data.peer ?? generatePeerFeedKey()
     setRoomId(data.room)
     setPeerId(peer)
@@ -55,15 +55,18 @@ export function useLiveHexRoom(opts: UseLiveHexRoomOptions = {}) {
       if (typeof window !== 'undefined') {
         window.history.replaceState(null, '', enc.shareUrl)
       }
+      return enc.shareUrl
     }
+    setRoomErr('Room link too long for this browser.')
+    return null
   }, [])
 
-  const startNewRoom = useCallback(async () => {
+  const startNewRoom = useCallback(async (): Promise<string | null> => {
     const room = generateRoomId()
     const peer = generatePeerFeedKey()
     setPeerId(peer)
     setRoomErr(null)
-    await applyRoomPayload({ v: 1, room, peer })
+    return applyRoomPayload({ v: 1, room, peer })
   }, [applyRoomPayload])
 
   const joinRoomFromPaste = useCallback(

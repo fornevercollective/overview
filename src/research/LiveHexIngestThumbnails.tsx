@@ -9,6 +9,9 @@ import {
 } from './liveHexCodec'
 import {
   decodeVflRoomSharePayload,
+  encodeVflRoomShare,
+  generatePeerFeedKey,
+  generateRoomId,
   liveHexChannelForRoom,
   stashPendingFeedPaste,
   stashPendingRoomPaste,
@@ -544,14 +547,33 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
             <label className="ro-ingest-live-hex-menu-label" htmlFor="live-room-paste">
               Room link
             </label>
-            <input
-              id="live-room-paste"
-              type="text"
-              className="ro-ingest-live-hex-paste-input"
-              placeholder="#vfl-room=… or full lab URL"
-              value={roomPaste}
-              onChange={(e) => setRoomPaste(e.target.value)}
-            />
+            <div className="ro-ingest-live-hex-paste-row">
+              <input
+                id="live-room-paste"
+                type="text"
+                className="ro-ingest-live-hex-paste-input"
+                placeholder="#vfl-room=… or full lab URL"
+                value={roomPaste}
+                onChange={(e) => setRoomPaste(e.target.value)}
+              />
+              <button
+                type="button"
+                className="ro-btn ro-btn-ghost ro-ingest-live-hex-paste-btn"
+                title="Generate a new room invite link"
+                onClick={() => {
+                  void (async () => {
+                    const enc = await encodeVflRoomShare({
+                      v: 1,
+                      room: generateRoomId(),
+                      peer: generatePeerFeedKey(),
+                    })
+                    if (enc.ok) setRoomPaste(enc.shareUrl)
+                  })()
+                }}
+              >
+                Make
+              </button>
+            </div>
           </div>
           {onOpenVideoLab ? (
             <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
@@ -571,11 +593,8 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
             </div>
           ) : null}
           <p className="ro-ingest-live-hex-menu-hint muted">
-            Room links use random <code className="ro-drawer-code">#vfl-room=</code> hashes (
-            <a href="https://github.com/kognise/notes" target="_blank" rel="noreferrer">
-              Notes
-            </a>
-            ). Channel <code className="ro-drawer-code">{liveHexChannelForRoom(roomIdFromHash)}</code>. Feed:{' '}
+            Room links use random <code className="ro-drawer-code">#vfl-room=</code> hashes. Channel{' '}
+            <code className="ro-drawer-code">{liveHexChannelForRoom(roomIdFromHash)}</code>. Feed:{' '}
             <strong>{effectiveFeedKey(feedOrder, displayIdx, pinnedKey)}</strong>
           </p>
         </div>

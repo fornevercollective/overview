@@ -257,8 +257,11 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [cameraFeedMode, setCameraFeedMode] = useState<'gray' | 'color'>('gray')
   const [cameraErr, setCameraErr] = useState<string | null>(null)
   const [cameraMenuOpen, setCameraMenuOpen] = useState(false)
+  const [vwallMenuOpen, setVwallMenuOpen] = useState(false)
   const cameraMenuId = useId()
+  const vwallMenuId = useId()
   const cameraMenuTriggerId = `${cameraMenuId}-trigger`
+  const vwallMenuTriggerId = `${vwallMenuId}-trigger`
   const [feedThumbSeq, setFeedThumbSeq] = useState(0)
   const bumpOffRef = useRef<HTMLCanvasElement | null>(null)
   const [depthZones, setDepthZones] = useState(false)
@@ -291,6 +294,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const offHexRef = useRef<HTMLCanvasElement | null>(null)
   const layerWorkRef = useRef<HTMLCanvasElement | null>(null)
   const cameraMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const vwallMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const capRef = useRef<HTMLCanvasElement>(null)
   const camRaf = useRef(0)
@@ -1332,6 +1336,27 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     setCameraMenuOpen(false)
   }, [])
 
+  useEffect(() => {
+    if (!vwallMenuOpen) return
+    const onDoc = (e: globalThis.MouseEvent) => {
+      const w = vwallMenuWrapRef.current
+      if (w && !w.contains(e.target as Node)) setVwallMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setVwallMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [vwallMenuOpen])
+
+  const closeVwallMenu = useCallback(() => {
+    setVwallMenuOpen(false)
+  }, [])
+
   const onStackPointer = useCallback(
     (e: ReactPointerEvent<HTMLCanvasElement>) => {
       const c = stageRef.current
@@ -1466,25 +1491,235 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                 </span>
               ) : null}
             </div>
-          </div>
-          <section className="vfl-panel vfl-feeds-hub" aria-label="Open feeds — rooms, video links, chat">
-            <div className="vfl-feeds-hub-head">
-              <h2 className="vfl-panel-title">Open feeds</h2>
-              <div className="vfl-feeds-modes" aria-label="Session modes (link + hex channel)">
-                <span className="vfl-feeds-mode">Teams</span>
-                <span className="vfl-feeds-mode">Omegle</span>
-                <span className="vfl-feeds-mode">Roulette</span>
-                <span className="vfl-feeds-mode">TikTok live</span>
+            <div ref={vwallMenuWrapRef} className="vfl-header-vwall-wrap">
+              <div className="ro-ingest-live-hex-details">
+                <button
+                  type="button"
+                  id={vwallMenuTriggerId}
+                  className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary${vwallTiles.length > 0 ? ' is-lit' : ''}`}
+                  aria-label="VWall feeds menu"
+                  aria-expanded={vwallMenuOpen}
+                  aria-haspopup="menu"
+                  aria-controls={vwallMenuOpen ? vwallMenuId : undefined}
+                  onClick={() => setVwallMenuOpen((o) => !o)}
+                >
+                  VWall
+                </button>
+                {vwallMenuOpen ? (
+                  <div
+                    id={vwallMenuId}
+                    className="ro-ingest-live-hex-menu-panel vfl-header-vwall-menu"
+                    role="menu"
+                    aria-labelledby={vwallMenuTriggerId}
+                  >
+                    <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
+                      <label className="ro-ingest-live-hex-menu-label" htmlFor="vfl-header-vwall-search">
+                        Search
+                      </label>
+                      <input
+                        id="vfl-header-vwall-search"
+                        type="text"
+                        className="ro-ingest-live-hex-paste-input"
+                        placeholder="Images (empty = picsum)"
+                        value={vwallSearch}
+                        onChange={(e) => setVwallSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            void loadVwallFeeds().then(() => closeVwallMenu())
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="ro-ingest-live-hex-menu-row">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action"
+                        disabled={vwallBusy}
+                        onClick={() => {
+                          void loadVwallFeeds().then(() => closeVwallMenu())
+                        }}
+                      >
+                        {vwallBusy ? 'Loading…' : 'Load feeds'}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action"
+                        disabled={vwallTiles.length === 0}
+                        onClick={() => {
+                          clearVwallFeeds()
+                          closeVwallMenu()
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
+                      <a
+                        href="https://fornevercollective.github.io/vwall/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-wide"
+                      >
+                        Open VWall wall…
+                      </a>
+                    </div>
+                    {vwallTiles.length > 0 ? (
+                      <p className="ro-ingest-live-hex-menu-hint muted" role="status">
+                        {vwallTiles.length} feeds on the wall
+                      </p>
+                    ) : null}
+                    {vwallErr ? (
+                      <p className="ro-ingest-live-hex-menu-hint muted" role="alert">
+                        {vwallErr}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
+            <section className="vfl-panel vfl-stage-effects vfl-header-effects" aria-label="Effects preset">
+              <div className="vfl-effects-row">
+                  <h2 className="vfl-panel-title">Effects</h2>
+                  <div className="vfl-var-row">
+                    <button
+                      type="button"
+                      className="ro-btn ro-btn-ghost"
+                      aria-label="Previous preset"
+                      onClick={() => setVariationIdx((i) => (i - 1 + VARIATIONS.length) % VARIATIONS.length)}
+                    >
+                      ◀
+                    </button>
+                    <code className="vfl-var-code">{variation.label}</code>
+                    <button
+                      type="button"
+                      className="ro-btn ro-btn-ghost"
+                      aria-label="Next preset"
+                      onClick={() => setVariationIdx((i) => (i + 1) % VARIATIONS.length)}
+                    >
+                      ▶
+                    </button>
+                  </div>
+                </div>
+                <label className="vfl-header-depth-check muted">
+                  <input
+                    type="checkbox"
+                    checked={depthZones}
+                    onChange={(e) => setDepthZones(e.target.checked)}
+                  />
+                  Depth stack — roto lighting (back), thermal sweep + float plane (mid), dither on
+                  edges / near plane (front). Pointer on stage moves the key light; ~3× CPU.
+                </label>
+                {depthZones ? (
+                  <div className="vfl-gsplat-tune" aria-label="Depth proxy tuning">
+                    <p className="vfl-media-hint muted vfl-gsplat-tune-intro">
+                      CPU depth proxy (gsplat-inspired weights) — optimizable for experiments.
+                    </p>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-r">
+                        Radial
+                      </label>
+                      <input
+                        id="vfl-gs-r"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={gsplatEffective.radial}
+                        onChange={(e) => setGsplatField('radial', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.radial.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-v">
+                        Vertical
+                      </label>
+                      <input
+                        id="vfl-gs-v"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={gsplatEffective.vertical}
+                        onChange={(e) => setGsplatField('vertical', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.vertical.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-l">
+                        Luminance
+                      </label>
+                      <input
+                        id="vfl-gs-l"
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={gsplatEffective.luminance}
+                        onChange={(e) => setGsplatField('luminance', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.luminance.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-zp">
+                        zPow
+                      </label>
+                      <input
+                        id="vfl-gs-zp"
+                        type="range"
+                        min={0.4}
+                        max={2.8}
+                        step={0.02}
+                        value={gsplatEffective.zPow}
+                        onChange={(e) => setGsplatField('zPow', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.zPow.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-sh">
+                        Sweep Hz
+                      </label>
+                      <input
+                        id="vfl-gs-sh"
+                        type="range"
+                        min={0.2}
+                        max={3.5}
+                        step={0.05}
+                        value={gsplatEffective.sweepHz}
+                        onChange={(e) => setGsplatField('sweepHz', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.sweepHz.toFixed(2)}</span>
+                    </div>
+                    <div className="vfl-media-row">
+                      <label className="vfl-media-label" htmlFor="vfl-gs-sm">
+                        Sweep zM
+                      </label>
+                      <input
+                        id="vfl-gs-sm"
+                        type="range"
+                        min={1}
+                        max={9}
+                        step={0.05}
+                        value={gsplatEffective.sweepZM}
+                        onChange={(e) => setGsplatField('sweepZM', Number(e.target.value))}
+                      />
+                      <span className="vfl-media-val">{gsplatEffective.sweepZM.toFixed(2)}</span>
+                    </div>
+                    <button type="button" className="ro-btn ro-btn-ghost vfl-gsplat-reset" onClick={() => setGsplatTune({})}>
+                      Reset depth proxy
+                    </button>
+                  </div>
+                ) : null}
+            </section>
+          </div>
+          <section className="vfl-panel vfl-feeds-hub" aria-label="Add and share video feeds for the wall">
+            <h2 className="vfl-panel-title vfl-feeds-hub-title">Add feeds</h2>
             <p className="vfl-feeds-lead muted">
-              Share a random <code className="ro-drawer-code">#vfl-room=</code> link (same idea as{' '}
-              <a href="https://github.com/kognise/notes" target="_blank" rel="noreferrer">
-                Kognise Notes
-              </a>
-              ). Peers on the same room URL post hex frames and chat on{' '}
-              <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code> — same browser
-              origin / tabs today; WebRTC backend later.
+              Stack camera, streams, and image tiles into one interactive wall — browse with the feed strip,
+              pin a source on the stage, and share a <code className="ro-drawer-code">#vfl-room=</code> link so other
+              tabs can post hex frames on{' '}
+              <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>.
             </p>
             <div className="vfl-feeds-grid">
               <div className="vfl-feeds-block">
@@ -1512,9 +1747,9 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                       if (feedOrder.length <= 1) return
                       setActiveIdx(Math.floor(Math.random() * feedOrder.length))
                     }}
-                    title="Jump carousel to a random feed in this tab"
+                    title="Jump carousel to a random feed on the wall"
                   >
-                    Feed roulette
+                    Shuffle feed
                   </button>
                 </div>
                 <div className="vfl-yt-stream-row">
@@ -1526,6 +1761,19 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                     onChange={(e) => setRoomLinkPaste(e.target.value)}
                     aria-label="Room invite link"
                   />
+                  <button
+                    type="button"
+                    className="ro-btn ro-btn-ghost"
+                    title="Create a new room and put its invite link here"
+                    onClick={() => {
+                      void (async () => {
+                        const url = await startNewRoom()
+                        if (url) setRoomLinkPaste(url)
+                      })()
+                    }}
+                  >
+                    Make
+                  </button>
                   <button
                     type="button"
                     className="ro-btn ro-btn-ghost"
@@ -1772,7 +2020,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
           </section>
           <h1 className="vfl-title">Video feeds lab</h1>
           <p className="vfl-lead">
-            Live hex on <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>, carousel + pin,
+            An interactive wall of live video feeds — hex tiles on the rail, one feed on the main stage. Channel{' '}
+            <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>, carousel + pin,
             and built-in <strong>ordered dither</strong>, <strong>halftone</strong>, and <strong>ASCII-density</strong>{' '}
             passes (CPU canvas — same spirit as tools like{' '}
             <a href="https://efecto.app/fx" target="_blank" rel="noreferrer">
@@ -1819,139 +2068,6 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         <main className="vfl-main">
           <div className="vfl-stage-bump">
             <div className="vfl-stage-column">
-              <section className="vfl-panel vfl-stage-effects" aria-label="Effects preset">
-                <div className="vfl-effects-row">
-                  <h2 className="vfl-panel-title">Effects</h2>
-                  <div className="vfl-var-row">
-                    <button
-                      type="button"
-                      className="ro-btn ro-btn-ghost"
-                      aria-label="Previous preset"
-                      onClick={() => setVariationIdx((i) => (i - 1 + VARIATIONS.length) % VARIATIONS.length)}
-                    >
-                      ◀
-                    </button>
-                    <code className="vfl-var-code">{variation.label}</code>
-                    <button
-                      type="button"
-                      className="ro-btn ro-btn-ghost"
-                      aria-label="Next preset"
-                      onClick={() => setVariationIdx((i) => (i + 1) % VARIATIONS.length)}
-                    >
-                      ▶
-                    </button>
-                  </div>
-                </div>
-                <label className="vfl-header-depth-check muted">
-                  <input
-                    type="checkbox"
-                    checked={depthZones}
-                    onChange={(e) => setDepthZones(e.target.checked)}
-                  />
-                  Depth stack — roto lighting (back), thermal sweep + float plane (mid), dither on
-                  edges / near plane (front). Pointer on stage moves the key light; ~3× CPU.
-                </label>
-                {depthZones ? (
-                  <div className="vfl-gsplat-tune" aria-label="Depth proxy tuning">
-                    <p className="vfl-media-hint muted vfl-gsplat-tune-intro">
-                      CPU depth proxy (gsplat-inspired weights) — optimizable for experiments.
-                    </p>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-r">
-                        Radial
-                      </label>
-                      <input
-                        id="vfl-gs-r"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={gsplatEffective.radial}
-                        onChange={(e) => setGsplatField('radial', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.radial.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-v">
-                        Vertical
-                      </label>
-                      <input
-                        id="vfl-gs-v"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={gsplatEffective.vertical}
-                        onChange={(e) => setGsplatField('vertical', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.vertical.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-l">
-                        Luminance
-                      </label>
-                      <input
-                        id="vfl-gs-l"
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={gsplatEffective.luminance}
-                        onChange={(e) => setGsplatField('luminance', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.luminance.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-zp">
-                        zPow
-                      </label>
-                      <input
-                        id="vfl-gs-zp"
-                        type="range"
-                        min={0.4}
-                        max={2.8}
-                        step={0.02}
-                        value={gsplatEffective.zPow}
-                        onChange={(e) => setGsplatField('zPow', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.zPow.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-sh">
-                        Sweep Hz
-                      </label>
-                      <input
-                        id="vfl-gs-sh"
-                        type="range"
-                        min={0.2}
-                        max={3.5}
-                        step={0.05}
-                        value={gsplatEffective.sweepHz}
-                        onChange={(e) => setGsplatField('sweepHz', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.sweepHz.toFixed(2)}</span>
-                    </div>
-                    <div className="vfl-media-row">
-                      <label className="vfl-media-label" htmlFor="vfl-gs-sm">
-                        Sweep zM
-                      </label>
-                      <input
-                        id="vfl-gs-sm"
-                        type="range"
-                        min={1}
-                        max={9}
-                        step={0.05}
-                        value={gsplatEffective.sweepZM}
-                        onChange={(e) => setGsplatField('sweepZM', Number(e.target.value))}
-                      />
-                      <span className="vfl-media-val">{gsplatEffective.sweepZM.toFixed(2)}</span>
-                    </div>
-                    <button type="button" className="ro-btn ro-btn-ghost vfl-gsplat-reset" onClick={() => setGsplatTune({})}>
-                      Reset depth proxy
-                    </button>
-                  </div>
-                ) : null}
-              </section>
               <section
                 className="vfl-panel vfl-media-controls"
                 aria-label="Video transport, waveform, captions, image, and stream audio"
