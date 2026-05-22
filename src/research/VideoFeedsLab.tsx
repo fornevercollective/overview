@@ -338,6 +338,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     gain: GainNode
     analyser: AnalyserNode
   } | null>(null)
+  /** Gain node only — updated imperatively (volume/mute); kept separate for react-hooks/immutability. */
+  const streamGainRef = useRef<GainNode | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null)
   const wfRafRef = useRef(0)
@@ -356,6 +358,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       }
       audioNodesRef.current = null
     }
+    streamGainRef.current = null
     analyserRef.current = null
     const v = ytVideoRef.current
     if (v) {
@@ -667,10 +670,11 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
           gain.connect(analyser)
           analyser.connect(ctx.destination)
           audioNodesRef.current = { src, gain, analyser }
+          streamGainRef.current = gain
           analyserRef.current = analyser
         }
         v.muted = false
-        const g = audioNodesRef.current?.gain
+        const g = streamGainRef.current
         if (g) g.gain.value = audioMuted ? 0 : audioVol
       } catch {
         /* autoplay / CORS — keep decoding muted for hex pipeline */
@@ -679,13 +683,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     return () => {
       cancelled = true
     }
-  }, [streamAudioOn, ytFeedId, teardownAudioGraph])
-
-  useEffect(() => {
-    const g = audioNodesRef.current?.gain
-    if (!g || !streamAudioOn) return
-    g.gain.value = audioMuted ? 0 : audioVol
-  }, [audioMuted, audioVol, streamAudioOn])
+  }, [streamAudioOn, ytFeedId, teardownAudioGraph, audioMuted, audioVol])
 
   useEffect(() => {
     if (!showWaveform) {
@@ -1034,7 +1032,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       micAnalyserRef.current = an
     })()
     return () => {
-      micSetupGenRef.current++
+      micSetupGenRef.current = gen + 1
       try {
         micSourceRef.current?.disconnect()
       } catch {
@@ -1055,7 +1053,6 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       return
     }
     let cancelled = false
-    setPoseErr(null)
     void (async () => {
       try {
         landmarkerRef.current = await getPoseLandmarker()
@@ -1695,7 +1692,12 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                         step={1}
                         value={Math.round(audioVol * 100)}
                         disabled={!streamAudioOn || !ytFeedId || audioMuted}
-                        onChange={(e) => setAudioVol(Number(e.target.value) / 100)}
+                        onChange={(e) => {
+                          const vol = Number(e.target.value) / 100
+                          setAudioVol(vol)
+                          const g = streamGainRef.current
+                          if (g) g.gain.value = audioMuted ? 0 : vol
+                        }}
                         aria-valuetext={`${Math.round(audioVol * 100)} percent`}
                       />
                     </div>
@@ -1704,7 +1706,12 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                         type="checkbox"
                         checked={audioMuted}
                         disabled={!streamAudioOn || !ytFeedId}
-                        onChange={(e) => setAudioMuted(e.target.checked)}
+                        onChange={(e) => {
+                          const muted = e.target.checked
+                          setAudioMuted(muted)
+                          const g = streamGainRef.current
+                          if (g) g.gain.value = muted ? 0 : audioVol
+                        }}
                       />
                       Mute
                     </label>
@@ -1788,7 +1795,11 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                         type="checkbox"
                         checked={poseEnabled}
                         disabled={!cameraOn}
-                        onChange={(e) => setPoseEnabled(e.target.checked)}
+                        onChange={(e) => {
+                          const on = e.target.checked
+                          setPoseEnabled(on)
+                          if (on) setPoseErr(null)
+                        }}
                       />
                       Pose skeleton overlay (needs camera)
                     </label>
