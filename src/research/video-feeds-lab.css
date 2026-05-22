@@ -115,14 +115,161 @@
   flex: none;
 }
 
-.vfl-header-demo-bar {
-  margin: 0 0 0.5rem;
+.vfl-feeds-hub {
+  margin: 0 0 0.75rem;
+  padding: 10px 12px 12px;
+  max-width: min(100%, 52rem);
 }
 
-.vfl-header-demo-panel {
+.vfl-feeds-hub-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 0.35rem;
+}
+
+.vfl-feeds-hub-head .vfl-panel-title {
   margin: 0;
-  padding: 8px 10px 9px;
-  max-width: min(100%, 36rem);
+}
+
+.vfl-feeds-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vfl-feeds-mode {
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--ro-font-mono);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--ro-accent) 30%);
+  color: color-mix(in srgb, var(--ro-muted) 75%, var(--ro-accent) 25%);
+}
+
+.vfl-feeds-lead {
+  margin: 0 0 0.65rem;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.vfl-feeds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 12px 16px;
+}
+
+.vfl-feeds-block--vwall {
+  grid-column: 1 / -1;
+}
+
+.vfl-feeds-vwall-link {
+  font-size: 0.62rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.vfl-vwall-count-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0.35rem 0 0.5rem;
+}
+
+.vfl-vwall-count-row input[type='range'] {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+}
+
+.vfl-vwall-settings-toggle {
+  margin-top: 0.35rem;
+}
+
+.vfl-vwall-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.vfl-vwall-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.68rem;
+  color: var(--text-muted, var(--text-h));
+}
+
+.vfl-feeds-block-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-family: var(--ro-font-mono);
+  color: color-mix(in srgb, var(--ro-muted) 88%, var(--ro-accent) 12%);
+  font-weight: 600;
+}
+
+.vfl-feeds-status {
+  margin: 0 0 0.45rem;
+  font-size: 0.68rem;
+}
+
+.vfl-feeds-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.vfl-feeds-share-url {
+  margin-top: 0.45rem;
+  width: 100%;
+  font-size: 0.62rem;
+}
+
+.vfl-feeds-chat .vfl-chat-log {
+  min-height: 5.5rem;
+  max-height: 9rem;
+  overflow-y: auto;
+  margin: 0 0 0.5rem;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--code-bg) 92%, transparent);
+  font-size: 0.72rem;
+}
+
+.vfl-chat-empty {
+  margin: 0;
+  font-size: 0.68rem;
+}
+
+.vfl-chat-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+  line-height: 1.35;
+}
+
+.vfl-chat-from {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+}
+
+.vfl-chat-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .vfl-yt-stream {

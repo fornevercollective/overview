@@ -7,15 +7,21 @@ import type {
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import './research.css'
 import {
-  LIVE_HEX_DOCUMENT_CHANNEL,
   drawHexFrame,
-  isHexFrameMsg,
   luminanceHexFromImageData,
   normalizeFeedKey,
   type HexFrameMsg,
 } from './liveHexCodec'
 import { ffmpegCdnStreamUrlForVideoId } from '../util/ffmpegStreamUrl'
-import { parseYouTubeVideoId, stripYouTubePasteDecorators } from '../util/youtube'
+import { useLiveHexRoom } from './liveHexRoom'
+import { consumePendingFeedPaste, consumePendingRoomPaste, liveHexChannelForRoom } from './vfl-room-share'
+import { parseFeedLinkPaste, ytHexFeedKey } from './vfl-feed-paste'
+import {
+  getVwallGoogleCredentials,
+  loadVwallUniverse,
+  saveVwallGoogleCredentials,
+  vwallFeedKey,
+} from './vwallFeeds'
 import {
   applyDepthSpatialStack,
   applyDitherPass,
@@ -34,9 +40,6 @@ export type VideoFeedsLabProps = {
 const CAMERA_FEED = '__camera__'
 const DEFAULT_FEED = '__default__'
 
-function ytHexFeedKey(videoId: string): string {
-  return `yt:${videoId}`
-}
 const STAGE_PX = 480
 const CAMERA_GRID = 72
 const TRAIL_THUMB = 40
@@ -123,29 +126,6 @@ function effectiveFeedKey(feedOrder: string[], activeIdx: number, pinnedKey: str
 
 const BUMP_MOSAIC_COLS = 4
 const BUMP_MOSAIC_ROWS = 7
-const TRAIL_SLOTS = BUMP_MOSAIC_COLS * BUMP_MOSAIC_ROWS
-
-type TrailRing = { canvases: HTMLCanvasElement[]; write: number; filled: number }
-
-function createTrailRing(): TrailRing {
-  return {
-    canvases: Array.from({ length: TRAIL_SLOTS }, () => {
-      const c = document.createElement('canvas')
-      c.width = TRAIL_THUMB
-      c.height = TRAIL_THUMB
-      return c
-    }),
-    write: 0,
-    filled: 0,
-  }
-}
-
-function snapSlotForTile(tileIndex: number, write: number, filled: number): number | null {
-  if (tileIndex >= filled) return null
-  const newest = (write - 1 + TRAIL_SLOTS) % TRAIL_SLOTS
-  return (newest - tileIndex + TRAIL_SLOTS * 2) % TRAIL_SLOTS
-}
-
 const BUMP_TILE_TOPO = (() => {
   const tiles: { key: string; nx: number; ny: number; i: number; zSlot: number }[] = []
   const cx = Math.max(1, BUMP_MOSAIC_COLS - 1)
@@ -165,35 +145,52 @@ const BUMP_TILE_TOPO = (() => {
 })()
 
 function VflBumpRail({
-  trailRingRef,
-  trailSeq,
+  framesRef,
+  feedKeys,
+  thumbSeq,
+  offThumbRef,
 }: {
-  trailRingRef: RefObject<TrailRing | null>
-  trailSeq: number
+  framesRef: RefObject<Record<string, HexFrameMsg>>
+  feedKeys: string[]
+  thumbSeq: number
+  offThumbRef: RefObject<HTMLCanvasElement | null>
 }) {
   const ref = useRef<HTMLElement>(null)
   const tileDisplayRefs = useRef<(HTMLCanvasElement | null)[]>([])
 
   useLayoutEffect(() => {
-    const ring = trailRingRef.current
+    const frames = framesRef.current
     const g = getComputedStyle(document.documentElement)
     const emptyFill = g.getPropertyValue('--code-bg').trim() || '#f4f4f5'
+    const keys = feedKeys.length > 0 ? feedKeys : [DEFAULT_FEED]
+    let off = offThumbRef.current
+    if (!off && typeof document !== 'undefined') {
+      off = document.createElement('canvas')
+      offThumbRef.current = off
+    }
     for (const t of BUMP_TILE_TOPO) {
       const dest = tileDisplayRefs.current[t.i]
       if (!dest) continue
       const dctx = dest.getContext('2d')
       if (!dctx) continue
-      const slot = ring ? snapSlotForTile(t.i, ring.write, ring.filled) : null
-      if (slot == null || !ring) {
+      const fk = keys[t.i % keys.length]!
+      const msg = frames?.[fk]
+      if (!msg || !off) {
         dctx.fillStyle = emptyFill
         dctx.fillRect(0, 0, TRAIL_THUMB, TRAIL_THUMB)
-      } else {
-        dctx.imageSmoothingEnabled = false
-        dctx.clearRect(0, 0, TRAIL_THUMB, TRAIL_THUMB)
-        dctx.drawImage(ring.canvases[slot]!, 0, 0, TRAIL_THUMB, TRAIL_THUMB, 0, 0, TRAIL_THUMB, TRAIL_THUMB)
+        continue
       }
+      const res = Math.floor(msg.res)
+      const hex = Uint8Array.from(msg.hex)
+      if (hex.length !== res * res) {
+        dctx.fillStyle = emptyFill
+        dctx.fillRect(0, 0, TRAIL_THUMB, TRAIL_THUMB)
+        continue
+      }
+      const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
+      drawHexFrame(dest, off, hex, res, mode, TRAIL_THUMB)
     }
-  }, [trailSeq, trailRingRef])
+  }, [thumbSeq, feedKeys, framesRef, offThumbRef])
 
   const onMove = (e: ReactMouseEvent<HTMLElement>) => {
     const el = ref.current
@@ -214,12 +211,12 @@ function VflBumpRail({
       className="vfl-bump-rail"
       onMouseMove={onMove}
       onMouseLeave={onLeave}
-      aria-label="Trailing snapshots of the rendered stage"
+      aria-label="Live snapshots from other feeds in the carousel"
     >
       <div
         className="vfl-bump-mosaic"
         role="presentation"
-        title="Newest snapshot first; older frames trail through the grid. Tiles react to pointer movement."
+        title="Each tile shows the latest frame from a different feed (peers, YouTube, camera, demos). Pointer moves parallax layers."
       >
         {BUMP_TILE_TOPO.map((t) => (
           <div
@@ -262,10 +259,22 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [cameraMenuOpen, setCameraMenuOpen] = useState(false)
   const cameraMenuId = useId()
   const cameraMenuTriggerId = `${cameraMenuId}-trigger`
-  const trailRingRef = useRef<TrailRing | null>(null)
-  const [trailSeq, setTrailSeq] = useState(0)
+  const [feedThumbSeq, setFeedThumbSeq] = useState(0)
+  const bumpOffRef = useRef<HTMLCanvasElement | null>(null)
   const [depthZones, setDepthZones] = useState(false)
-  const [ytUrlInput, setYtUrlInput] = useState('')
+  const [feedLinkPaste, setFeedLinkPaste] = useState(() => consumePendingFeedPaste() ?? '')
+  const [roomLinkPaste, setRoomLinkPaste] = useState(() => consumePendingRoomPaste() ?? '')
+  const [chatDraft, setChatDraft] = useState('')
+  const [vwallSearch, setVwallSearch] = useState('')
+  const [vwallCount, setVwallCount] = useState(48)
+  const [vwallSeed, setVwallSeed] = useState(0)
+  const [vwallBusy, setVwallBusy] = useState(false)
+  const [vwallErr, setVwallErr] = useState<string | null>(null)
+  const [vwallShowSettings, setVwallShowSettings] = useState(false)
+  const [vwallApiKey, setVwallApiKey] = useState(() => getVwallGoogleCredentials().apiKey)
+  const [vwallCx, setVwallCx] = useState(() => getVwallGoogleCredentials().cx)
+  const [vwallTiles, setVwallTiles] = useState<{ feedKey: string; url: string; title: string }[]>([])
+  const vwallImagesRef = useRef<Map<string, HTMLImageElement>>(new Map())
   const [ytFeedId, setYtFeedId] = useState<string | null>(null)
   const [ytStreamErr, setYtStreamErr] = useState<string | null>(null)
 
@@ -431,17 +440,9 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       applyDitherPass(ctx, STAGE_PX, STAGE_PX, variation.dither)
     }
 
-    const ring = trailRingRef.current ?? createTrailRing()
-    if (!trailRingRef.current) trailRingRef.current = ring
-    const tctx = ring.canvases[ring.write]?.getContext('2d')
-    if (tctx) {
-      tctx.imageSmoothingEnabled = false
-      tctx.drawImage(canvas, 0, 0, STAGE_PX, STAGE_PX, 0, 0, TRAIL_THUMB, TRAIL_THUMB)
-    }
-    ring.write = (ring.write + 1) % TRAIL_SLOTS
-    ring.filled = Math.min(TRAIL_SLOTS, ring.filled + 1)
-    setTrailSeq((n) => n + 1)
   }, [variation, depthZones, cameraFeedMode, gsplatTune])
+
+  const ingestRef = useRef<(msg: HexFrameMsg) => void>(() => {})
 
   const ingest = useCallback(
     (msg: HexFrameMsg) => {
@@ -459,23 +460,39 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         feedKey: fk,
       }
       setFeedOrder((prev) => (prev.includes(fk) ? prev : [...prev, fk]))
+      setFeedThumbSeq((n) => n + 1)
       redrawStage()
     },
     [redrawStage],
   )
 
   useEffect(() => {
-    const ch = new BroadcastChannel(LIVE_HEX_DOCUMENT_CHANNEL)
-    const onMsg = (ev: MessageEvent) => {
-      if (!isHexFrameMsg(ev.data)) return
-      ingest(ev.data)
-    }
-    ch.addEventListener('message', onMsg)
-    return () => {
-      ch.removeEventListener('message', onMsg)
-      ch.close()
-    }
+    ingestRef.current = ingest
   }, [ingest])
+
+  const onRoomApplied = useCallback((data: { room: string; peer: string }) => {
+    setFeedOrder((prev) => (prev.includes(data.peer) ? prev : [data.peer, ...prev]))
+  }, [])
+
+  const room = useLiveHexRoom({
+    onHexFrame: (msg) => {
+      ingestRef.current(msg)
+    },
+    onRoomApplied,
+  })
+  const {
+    roomId,
+    peerId,
+    isInRoom,
+    publishHexToRoom,
+    joinRoomFromPaste,
+    startNewRoom,
+    copyRoomLink,
+    postChat,
+    chatLog,
+    roomShareUrl,
+    roomErr,
+  } = room
 
   useLayoutEffect(() => {
     redrawStage()
@@ -483,7 +500,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
 
   useEffect(() => {
     if (!demoPeers) return
-    const ch = new BroadcastChannel(LIVE_HEX_DOCUMENT_CHANNEL)
+    const ch = new BroadcastChannel(liveHexChannelForRoom(roomId))
     let t = 0
     const id = window.setInterval(() => {
       t += 1
@@ -509,7 +526,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       window.clearInterval(id)
       ch.close()
     }
-  }, [demoPeers])
+  }, [demoPeers, roomId])
 
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -573,12 +590,14 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     cap.height = CAMERA_GRID
     const ctx = cap.getContext('2d', { willReadFrequently: true })
     if (!ctx) return
+    const channelName = liveHexChannelForRoom(roomId)
     let ch: BroadcastChannel
     try {
-      ch = new BroadcastChannel(LIVE_HEX_DOCUMENT_CHANNEL)
+      ch = new BroadcastChannel(channelName)
     } catch {
       return
     }
+    const camFeedKey = isInRoom ? peerId : CAMERA_FEED
     let stopped = false
     const tick = () => {
       if (stopped) return
@@ -587,14 +606,16 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         try {
           const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
           const hex = luminanceHexFromImageData(id)
-          ch.postMessage({
+          const frame: HexFrameMsg = {
             type: 'hexframe',
             hex,
             res: CAMERA_GRID,
             mode: cameraFeedMode,
-            feedKey: CAMERA_FEED,
+            feedKey: camFeedKey,
             t: performance.now(),
-          })
+          }
+          ch.postMessage(frame)
+          if (isInRoom) publishHexToRoom(frame)
         } catch {
           /* skip */
         }
@@ -607,7 +628,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       cancelAnimationFrame(camRaf.current)
       ch.close()
     }
-  }, [cameraOn, cameraFeedMode])
+  }, [cameraOn, cameraFeedMode, isInRoom, peerId, publishHexToRoom, roomId])
 
   useEffect(() => {
     const v = ytVideoRef.current
@@ -771,7 +792,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     if (!ctx) return
     let ch: BroadcastChannel
     try {
-      ch = new BroadcastChannel(LIVE_HEX_DOCUMENT_CHANNEL)
+      ch = new BroadcastChannel(liveHexChannelForRoom(roomId))
     } catch {
       return
     }
@@ -804,7 +825,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       cancelAnimationFrame(ytRafRef.current)
       ch.close()
     }
-  }, [ytFeedId])
+  }, [ytFeedId, roomId])
 
   useEffect(() => {
     const v = ytVideoRef.current
@@ -948,26 +969,59 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     }
   }, [pipSupported, ytFeedId])
 
-  const addYtStreamFeed = useCallback(() => {
-    const raw = stripYouTubePasteDecorators(ytUrlInput)
-    const id = parseYouTubeVideoId(raw)
-    if (!id) {
-      setYtStreamErr('Paste a YouTube watch URL, youtu.be link, or bare 11-character id.')
-      return
-    }
-    const streamUrl = ffmpegCdnStreamUrlForVideoId(id)
-    if (!streamUrl) {
-      setYtStreamErr(
-        'Set VITE_FFMPEG_STREAM_URL_TEMPLATE at build time (must include {id} or {videoId}) so the lab can open a CORS-friendly mirror URL.',
-      )
-      return
-    }
-    setYtStreamErr(null)
-    setYtFeedId(id)
-    const fk = ytHexFeedKey(id)
-    setFeedOrder((prev) => [fk, ...prev.filter((k) => !k.startsWith('yt:'))])
-    setActiveIdx(0)
-  }, [ytUrlInput])
+  const applyFeedFromPaste = useCallback(
+    (raw: string) => {
+      const parsed = parseFeedLinkPaste(raw)
+      if (parsed.kind === 'youtube') {
+        setFeedLinkPaste(parsed.raw)
+        const streamUrl = ffmpegCdnStreamUrlForVideoId(parsed.videoId)
+        if (!streamUrl) {
+          setYtStreamErr(
+            'YouTube id ok — set VITE_FFMPEG_STREAM_URL_TEMPLATE ({id}) for a CORS mirror stream.',
+          )
+          return
+        }
+        setYtStreamErr(null)
+        setYtFeedId(parsed.videoId)
+        const fk = ytHexFeedKey(parsed.videoId)
+        setFeedOrder((prev) => [fk, ...prev.filter((k) => !k.startsWith('yt:'))])
+        setActiveIdx(0)
+        return
+      }
+      if (parsed.kind === 'feedKey') {
+        setFeedOrder((prev) => {
+          if (prev.includes(parsed.feedKey)) {
+            setActiveIdx(prev.indexOf(parsed.feedKey))
+            return prev
+          }
+          const next = [...prev, parsed.feedKey]
+          setActiveIdx(next.length - 1)
+          return next
+        })
+        return
+      }
+      if (parsed.kind === 'http') {
+        setYtStreamErr('HTTP URLs need a mirror template or open as a custom feedKey alias.')
+        return
+      }
+      setYtStreamErr('Unrecognized feed link — use YouTube URL, peer:… id, or demo-alpha style key.')
+    },
+    [],
+  )
+
+  const pendingFeedApplied = useRef(false)
+  useEffect(() => {
+    if (pendingFeedApplied.current || !feedLinkPaste.trim()) return
+    pendingFeedApplied.current = true
+    applyFeedFromPaste(feedLinkPaste)
+  }, [applyFeedFromPaste, feedLinkPaste])
+
+  const pendingRoomApplied = useRef(false)
+  useEffect(() => {
+    if (pendingRoomApplied.current || !roomLinkPaste.trim()) return
+    pendingRoomApplied.current = true
+    void joinRoomFromPaste(roomLinkPaste)
+  }, [joinRoomFromPaste, roomLinkPaste])
 
   const removeYtStreamFeed = useCallback(() => {
     setYtFeedId(null)
@@ -982,6 +1036,103 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     setPinnedKey((p) => (p != null && p.startsWith('yt:') ? null : p))
     setActiveIdx(0)
   }, [])
+
+  const clearVwallFeeds = useCallback(() => {
+    setVwallTiles([])
+    vwallImagesRef.current.clear()
+    setFeedOrder((prev) => prev.filter((k) => !k.startsWith('vwall:')))
+    setPinnedKey((p) => (p != null && p.startsWith('vwall:') ? null : p))
+    setVwallErr(null)
+  }, [])
+
+  const loadVwallFeeds = useCallback(async (seedOverride?: number) => {
+    setVwallBusy(true)
+    setVwallErr(null)
+    const seed = seedOverride ?? vwallSeed
+    try {
+      const q = vwallSearch.trim() || null
+      const items = await loadVwallUniverse(q, vwallCount, seed)
+      const creds = getVwallGoogleCredentials()
+      const tiles = items.map((item, i) => ({
+        feedKey: vwallFeedKey(q, i, item.url),
+        url: item.url,
+        title: item.title,
+      }))
+      setVwallTiles(tiles)
+      const keys = tiles.map((t) => t.feedKey)
+      setFeedOrder((prev) => {
+        const rest = prev.filter((k) => !k.startsWith('vwall:'))
+        return [...keys, ...rest]
+      })
+      setActiveIdx(0)
+      if (q && !creds.apiKey) {
+        setVwallErr('No Google API keys — loaded picsum placeholders. Open VWall settings to add keys.')
+      } else if (q && creds.apiKey && !creds.cx) {
+        setVwallErr('Missing Custom Search Engine ID — using picsum fallback.')
+      }
+    } catch (e) {
+      setVwallErr(e instanceof Error ? e.message : 'VWall load failed')
+    } finally {
+      setVwallBusy(false)
+    }
+  }, [vwallSearch, vwallCount, vwallSeed])
+
+  useEffect(() => {
+    const map = vwallImagesRef.current
+    map.clear()
+    for (const t of vwallTiles) {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.referrerPolicy = 'no-referrer'
+      img.src = t.url
+      map.set(t.feedKey, img)
+    }
+  }, [vwallTiles])
+
+  useEffect(() => {
+    if (vwallTiles.length === 0) return
+    const cap = document.createElement('canvas')
+    cap.width = CAMERA_GRID
+    cap.height = CAMERA_GRID
+    const ctx = cap.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return
+    let ch: BroadcastChannel
+    try {
+      ch = new BroadcastChannel(liveHexChannelForRoom(roomId))
+    } catch {
+      return
+    }
+    const sample = () => {
+      for (const t of vwallTiles) {
+        const img = vwallImagesRef.current.get(t.feedKey)
+        if (!img?.complete || img.naturalWidth < 1) continue
+        ctx.drawImage(img, 0, 0, CAMERA_GRID, CAMERA_GRID)
+        try {
+          const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
+          const hex = luminanceHexFromImageData(id)
+          const frame: HexFrameMsg = {
+            type: 'hexframe',
+            hex,
+            res: CAMERA_GRID,
+            mode: 'gray',
+            feedKey: t.feedKey,
+            t: performance.now(),
+          }
+          ch.postMessage(frame)
+          if (isInRoom) publishHexToRoom(frame)
+        } catch {
+          /* cross-origin taint */
+        }
+      }
+      setFeedThumbSeq((n) => n + 1)
+    }
+    const id = window.setInterval(sample, 280)
+    sample()
+    return () => {
+      window.clearInterval(id)
+      ch.close()
+    }
+  }, [vwallTiles, roomId, isInRoom, publishHexToRoom])
 
   useEffect(() => {
     const a = analyserRef.current
@@ -1302,8 +1453,9 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                       </button>
                     </div>
                     <p className="ro-ingest-live-hex-menu-hint muted">
-                      Publishes <code className="ro-drawer-code">{CAMERA_FEED}</code> on{' '}
-                      <code className="ro-drawer-code">{LIVE_HEX_DOCUMENT_CHANNEL}</code>.
+                      Publishes{' '}
+                      <code className="ro-drawer-code">{isInRoom ? peerId : CAMERA_FEED}</code> on{' '}
+                      <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>.
                     </p>
                   </div>
                 ) : null}
@@ -1315,47 +1467,126 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
               ) : null}
             </div>
           </div>
-          <div className="vfl-header-demo-bar">
-            <section className="vfl-panel vfl-header-demo-panel" aria-label="Demo peers and stream URL">
-              <h2 className="vfl-panel-title">Demo peers</h2>
-              <label className="vfl-check">
-                <input type="checkbox" checked={demoPeers} onChange={(e) => setDemoPeers(e.target.checked)} />
-                Stream synthetic <code className="ro-drawer-code">demo-alpha</code> /{' '}
-                <code className="ro-drawer-code">demo-beta</code>
-              </label>
-              <div className="vfl-yt-stream">
-                <h3 className="vfl-yt-stream-title">YouTube → hex feed</h3>
+          <section className="vfl-panel vfl-feeds-hub" aria-label="Open feeds — rooms, video links, chat">
+            <div className="vfl-feeds-hub-head">
+              <h2 className="vfl-panel-title">Open feeds</h2>
+              <div className="vfl-feeds-modes" aria-label="Session modes (link + hex channel)">
+                <span className="vfl-feeds-mode">Teams</span>
+                <span className="vfl-feeds-mode">Omegle</span>
+                <span className="vfl-feeds-mode">Roulette</span>
+                <span className="vfl-feeds-mode">TikTok live</span>
+              </div>
+            </div>
+            <p className="vfl-feeds-lead muted">
+              Share a random <code className="ro-drawer-code">#vfl-room=</code> link (same idea as{' '}
+              <a href="https://github.com/kognise/notes" target="_blank" rel="noreferrer">
+                Kognise Notes
+              </a>
+              ). Peers on the same room URL post hex frames and chat on{' '}
+              <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code> — same browser
+              origin / tabs today; WebRTC backend later.
+            </p>
+            <div className="vfl-feeds-grid">
+              <div className="vfl-feeds-block">
+                <h3 className="vfl-feeds-block-title">Room</h3>
+                {isInRoom ? (
+                  <p className="vfl-feeds-status muted" role="status">
+                    In <code className="ro-drawer-code">{roomId}</code> as{' '}
+                    <code className="ro-drawer-code">{peerId}</code>
+                  </p>
+                ) : (
+                  <p className="vfl-feeds-status muted">Solo — global hex channel until you create or join a room.</p>
+                )}
+                <div className="vfl-feeds-actions">
+                  <button type="button" className="ro-btn ro-btn-ghost" onClick={() => void startNewRoom()}>
+                    New room
+                  </button>
+                  <button type="button" className="ro-btn ro-btn-ghost" onClick={() => void copyRoomLink()}>
+                    Copy invite link
+                  </button>
+                  <button
+                    type="button"
+                    className="ro-btn ro-btn-ghost"
+                    disabled={feedOrder.length <= 1}
+                    onClick={() => {
+                      if (feedOrder.length <= 1) return
+                      setActiveIdx(Math.floor(Math.random() * feedOrder.length))
+                    }}
+                    title="Jump carousel to a random feed in this tab"
+                  >
+                    Feed roulette
+                  </button>
+                </div>
+                <div className="vfl-yt-stream-row">
+                  <input
+                    type="text"
+                    className="vfl-yt-stream-input"
+                    placeholder="Paste #vfl-room=… or full lab URL"
+                    value={roomLinkPaste}
+                    onChange={(e) => setRoomLinkPaste(e.target.value)}
+                    aria-label="Room invite link"
+                  />
+                  <button
+                    type="button"
+                    className="ro-btn ro-btn-ghost"
+                    onClick={() => void joinRoomFromPaste(roomLinkPaste)}
+                  >
+                    Join room
+                  </button>
+                </div>
+                {roomShareUrl ? (
+                  <input
+                    type="text"
+                    className="vfl-yt-stream-input vfl-feeds-share-url"
+                    readOnly
+                    value={roomShareUrl}
+                    aria-label="Current room share URL"
+                    onFocus={(e) => e.target.select()}
+                  />
+                ) : null}
+                {roomErr ? (
+                  <p className="vfl-yt-stream-err muted" role="alert">
+                    {roomErr}
+                  </p>
+                ) : null}
+              </div>
+              <div className="vfl-feeds-block">
+                <h3 className="vfl-feeds-block-title">Video feeds</h3>
                 <p className="vfl-yt-stream-hint muted">
-                  Paste a URL (braces optional, e.g.{' '}
-                  <code className="ro-drawer-code">{'{https://www.youtube.com/watch?v=…}'}</code>). The in-page
-                  YouTube player cannot be pixel-sampled; this path uses{' '}
-                  <code className="ro-drawer-code">VITE_FFMPEG_STREAM_URL_TEMPLATE</code> to load a mirror you control
-                  (same-origin or CORS-enabled MP4/HLS), same idea as the transcript dock.
+                  YouTube, <code className="ro-drawer-code">peer:…</code>, or{' '}
+                  <code className="ro-drawer-code">demo-alpha</code> keys. Mirror stream needs{' '}
+                  <code className="ro-drawer-code">VITE_FFMPEG_STREAM_URL_TEMPLATE</code>.
                 </p>
                 <div className="vfl-yt-stream-row">
                   <input
                     type="text"
                     className="vfl-yt-stream-input"
-                    placeholder="https://www.youtube.com/watch?v=… or {…}"
-                    value={ytUrlInput}
-                    onChange={(e) => setYtUrlInput(e.target.value)}
-                    aria-label="YouTube URL for stream feed"
+                    placeholder="https://youtube.com/watch?v=… or peer:abc12"
+                    value={feedLinkPaste}
+                    onChange={(e) => setFeedLinkPaste(e.target.value)}
+                    aria-label="Video feed link"
                   />
-                  <button type="button" className="ro-btn ro-btn-ghost" onClick={addYtStreamFeed}>
-                    Add feed
-                  </button>
                   <button
                     type="button"
                     className="ro-btn ro-btn-ghost"
-                    disabled={!ytFeedId}
-                    onClick={removeYtStreamFeed}
+                    onClick={() => applyFeedFromPaste(feedLinkPaste)}
                   >
-                    Remove
+                    Add feed
                   </button>
+                  {ytFeedId ? (
+                    <button type="button" className="ro-btn ro-btn-ghost" onClick={removeYtStreamFeed}>
+                      Remove YT
+                    </button>
+                  ) : null}
                 </div>
+                <label className="vfl-check">
+                  <input type="checkbox" checked={demoPeers} onChange={(e) => setDemoPeers(e.target.checked)} />
+                  Synthetic peers <code className="ro-drawer-code">demo-alpha</code> /{' '}
+                  <code className="ro-drawer-code">demo-beta</code>
+                </label>
                 {ytFeedId ? (
                   <p className="vfl-yt-stream-status muted" role="status">
-                    Streaming <code className="ro-drawer-code">{ytHexFeedKey(ytFeedId)}</code>
+                    Active <code className="ro-drawer-code">{ytHexFeedKey(ytFeedId)}</code>
                   </p>
                 ) : null}
                 {ytStreamErr ? (
@@ -1364,11 +1595,184 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                   </p>
                 ) : null}
               </div>
-            </section>
-          </div>
+              <div className="vfl-feeds-block vfl-feeds-block--vwall">
+                <h3 className="vfl-feeds-block-title">
+                  VWall feeds{' '}
+                  <a
+                    href="https://fornevercollective.github.io/vwall/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="vfl-feeds-vwall-link"
+                  >
+                    (open VWall)
+                  </a>
+                </h3>
+                <p className="vfl-yt-stream-hint muted">
+                  Image wall search from{' '}
+                  <a href="https://github.com/fornevercollective/vwall" target="_blank" rel="noreferrer">
+                    fornevercollective/vwall
+                  </a>
+                  — Google image search when API + CX are set, else picsum tiles. Each tile becomes a{' '}
+                  <code className="ro-drawer-code">vwall:…</code> hex feed on the bump rail.
+                </p>
+                <div className="vfl-yt-stream-row">
+                  <input
+                    type="text"
+                    className="vfl-yt-stream-input"
+                    placeholder="Search images (empty = picsum batch)"
+                    value={vwallSearch}
+                    onChange={(e) => setVwallSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void loadVwallFeeds()
+                    }}
+                    aria-label="VWall image search"
+                  />
+                  <button
+                    type="button"
+                    className="ro-btn ro-btn-ghost"
+                    disabled={vwallBusy}
+                    onClick={() => void loadVwallFeeds()}
+                  >
+                    {vwallBusy ? 'Loading…' : 'Load feeds'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ro-btn ro-btn-ghost"
+                    disabled={vwallTiles.length === 0}
+                    onClick={clearVwallFeeds}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    className="ro-btn ro-btn-ghost"
+                    onClick={() => {
+                      const next = vwallSeed + 1
+                      setVwallSeed(next)
+                      void loadVwallFeeds(next)
+                    }}
+                    title="New picsum seed (VWall Reseed)"
+                  >
+                    Reseed
+                  </button>
+                </div>
+                <div className="vfl-vwall-count-row">
+                  <label className="vfl-media-label" htmlFor="vfl-vwall-count">
+                    Count {vwallCount}
+                  </label>
+                  <input
+                    id="vfl-vwall-count"
+                    type="range"
+                    min={8}
+                    max={120}
+                    step={4}
+                    value={vwallCount}
+                    onChange={(e) => setVwallCount(Number(e.target.value))}
+                  />
+                </div>
+                {vwallTiles.length > 0 ? (
+                  <p className="vfl-yt-stream-status muted" role="status">
+                    {vwallTiles.length} VWall feeds active
+                  </p>
+                ) : null}
+                {vwallErr ? (
+                  <p className="vfl-yt-stream-err muted" role="alert">
+                    {vwallErr}
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost vfl-vwall-settings-toggle"
+                  aria-expanded={vwallShowSettings}
+                  onClick={() => setVwallShowSettings((o) => !o)}
+                >
+                  {vwallShowSettings ? 'Hide' : 'Show'} Google API settings
+                </button>
+                {vwallShowSettings ? (
+                  <div className="vfl-vwall-settings">
+                    <label>
+                      API key
+                      <input
+                        type="text"
+                        className="vfl-yt-stream-input"
+                        placeholder="AIza…"
+                        value={vwallApiKey}
+                        onChange={(e) => setVwallApiKey(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Search engine ID (cx)
+                      <input
+                        type="text"
+                        className="vfl-yt-stream-input"
+                        placeholder="0123456789:abc…"
+                        value={vwallCx}
+                        onChange={(e) => setVwallCx(e.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="ro-btn ro-btn-ghost"
+                      onClick={() => {
+                        saveVwallGoogleCredentials(vwallApiKey, vwallCx)
+                        setVwallErr(null)
+                      }}
+                    >
+                      Save (localStorage)
+                    </button>
+                    <p className="vfl-yt-stream-hint muted">
+                      Same keys as VWall. Optional build-time{' '}
+                      <code className="ro-drawer-code">VITE_VWALL_GOOGLE_API_KEY</code> /{' '}
+                      <code className="ro-drawer-code">VITE_VWALL_GOOGLE_CX</code>. Dev uses{' '}
+                      <code className="ro-drawer-code">/vwall-google-proxy</code>.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+              <div className="vfl-feeds-block vfl-feeds-chat">
+                <h3 className="vfl-feeds-block-title">Room chat</h3>
+                <div className="vfl-chat-log" role="log" aria-live="polite" aria-relevant="additions">
+                  {!isInRoom ? (
+                    <p className="muted vfl-chat-empty">Join or create a room to chat with peers on the same link.</p>
+                  ) : chatLog.length === 0 ? (
+                    <p className="muted vfl-chat-empty">No messages yet — say hi.</p>
+                  ) : (
+                    chatLog.map((m) => (
+                      <div key={`${m.from}-${m.t}-${m.text}`} className="vfl-chat-line">
+                        <code className="ro-drawer-code vfl-chat-from">{m.from}</code>
+                        <span>{m.text}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <form
+                  className="vfl-chat-form"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (!chatDraft.trim() || !isInRoom) return
+                    postChat(chatDraft)
+                    setChatDraft('')
+                  }}
+                >
+                  <input
+                    type="text"
+                    className="vfl-yt-stream-input"
+                    placeholder={isInRoom ? 'Message room…' : 'Join a room to chat'}
+                    value={chatDraft}
+                    disabled={!isInRoom}
+                    onChange={(e) => setChatDraft(e.target.value)}
+                    aria-label="Room chat message"
+                  />
+                  <button type="submit" className="ro-btn ro-btn-ghost" disabled={!isInRoom || !chatDraft.trim()}>
+                    Send
+                  </button>
+                </form>
+              </div>
+            </div>
+          </section>
           <h1 className="vfl-title">Video feeds lab</h1>
           <p className="vfl-lead">
-            Live hex frames on <code className="ro-drawer-code">{LIVE_HEX_DOCUMENT_CHANNEL}</code>, carousel + pin,
+            Live hex on <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>, carousel + pin,
             and built-in <strong>ordered dither</strong>, <strong>halftone</strong>, and <strong>ASCII-density</strong>{' '}
             passes (CPU canvas — same spirit as tools like{' '}
             <a href="https://efecto.app/fx" target="_blank" rel="noreferrer">
@@ -1932,7 +2336,12 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                 </div>
               </div>
             </div>
-            <VflBumpRail trailRingRef={trailRingRef} trailSeq={trailSeq} />
+            <VflBumpRail
+              framesRef={framesRef}
+              feedKeys={feedOrder}
+              thumbSeq={feedThumbSeq}
+              offThumbRef={bumpOffRef}
+            />
           </div>
 
           <div className="vfl-chips" role="tablist" aria-label="Known feeds">

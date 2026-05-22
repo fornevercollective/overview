@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  LIVE_HEX_DOCUMENT_CHANNEL,
   type HexFrameMsg,
   isHexFrameMsg,
   drawHexFrame,
@@ -8,6 +7,13 @@ import {
   normalizeFeedKey,
   shiftCanvases,
 } from './liveHexCodec'
+import {
+  decodeVflRoomSharePayload,
+  liveHexChannelForRoom,
+  stashPendingFeedPaste,
+  stashPendingRoomPaste,
+  VFL_ROOM_HASH_PREFIX,
+} from './vfl-room-share'
 
 const LEGACY_HEXCAST_CHANNEL = 'hexcast-stream'
 
@@ -69,6 +75,9 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
   const [feedOrder, setFeedOrder] = useState<string[]>([DEFAULT_FEED])
   const [activeIdx, setActiveIdx] = useState(0)
   const [pinnedKey, setPinnedKey] = useState<string | null>(null)
+  const [feedPaste, setFeedPaste] = useState('')
+  const [roomPaste, setRoomPaste] = useState('')
+  const [roomIdFromHash, setRoomIdFromHash] = useState<string | null>(null)
 
   const displayIdx =
     feedOrder.length === 0 ? 0 : Math.min(Math.max(0, activeIdx), feedOrder.length - 1)
@@ -162,6 +171,16 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
   }, [feedOrder, displayIdx, pinnedKey, drawStoredFrame])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const hash = window.location.hash
+    if (!hash.startsWith(VFL_ROOM_HASH_PREFIX)) return
+    const payload = hash.slice(VFL_ROOM_HASH_PREFIX.length)
+    void decodeVflRoomSharePayload(payload).then((data) => {
+      if (data?.room) setRoomIdFromHash(data.room)
+    })
+  }, [])
+
+  useEffect(() => {
     const channels: BroadcastChannel[] = []
     const onMsg = (ev: MessageEvent) => {
       if (!isHexFrameMsg(ev.data)) return
@@ -178,7 +197,7 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
       }
     }
 
-    open(LIVE_HEX_DOCUMENT_CHANNEL)
+    open(liveHexChannelForRoom(roomIdFromHash))
     if (import.meta.env.VITE_RELAY_HEXCAST_STREAM === '1') {
       open(LEGACY_HEXCAST_CHANNEL)
     }
@@ -219,7 +238,7 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
       window.clearInterval(hist)
       if (staleTimer.current !== undefined) window.clearTimeout(staleTimer.current)
     }
-  }, [applyFrame])
+  }, [applyFrame, roomIdFromHash])
 
   const clearStaleTimer = useCallback(() => {
     if (staleTimer.current !== undefined) {
@@ -508,6 +527,32 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
               Thermal
             </button>
           </div>
+          <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
+            <label className="ro-ingest-live-hex-menu-label" htmlFor="live-feed-paste">
+              Video feed link
+            </label>
+            <input
+              id="live-feed-paste"
+              type="text"
+              className="ro-ingest-live-hex-paste-input"
+              placeholder="YouTube URL, peer:…, demo-alpha"
+              value={feedPaste}
+              onChange={(e) => setFeedPaste(e.target.value)}
+            />
+          </div>
+          <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
+            <label className="ro-ingest-live-hex-menu-label" htmlFor="live-room-paste">
+              Room link
+            </label>
+            <input
+              id="live-room-paste"
+              type="text"
+              className="ro-ingest-live-hex-paste-input"
+              placeholder="#vfl-room=… or full lab URL"
+              value={roomPaste}
+              onChange={(e) => setRoomPaste(e.target.value)}
+            />
+          </div>
           {onOpenVideoLab ? (
             <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
               <button
@@ -515,6 +560,8 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
                 role="menuitem"
                 className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-wide"
                 onClick={() => {
+                  if (feedPaste.trim()) stashPendingFeedPaste(feedPaste)
+                  if (roomPaste.trim()) stashPendingRoomPaste(roomPaste)
                   closeMenu()
                   onOpenVideoLab()
                 }}
@@ -524,8 +571,11 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
             </div>
           ) : null}
           <p className="ro-ingest-live-hex-menu-hint muted">
-            Remote feeds: post <code className="ro-drawer-code">feedKey</code> on{' '}
-            <code className="ro-drawer-code">{LIVE_HEX_DOCUMENT_CHANNEL}</code>. Showing:{' '}
+            Room links use random <code className="ro-drawer-code">#vfl-room=</code> hashes (
+            <a href="https://github.com/kognise/notes" target="_blank" rel="noreferrer">
+              Notes
+            </a>
+            ). Channel <code className="ro-drawer-code">{liveHexChannelForRoom(roomIdFromHash)}</code>. Feed:{' '}
             <strong>{effectiveFeedKey(feedOrder, displayIdx, pinnedKey)}</strong>
           </p>
         </div>

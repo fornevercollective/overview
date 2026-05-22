@@ -25,6 +25,12 @@ const ollamaProxy: Record<string, import('vite').ProxyOptions> = {
       return `/oembed?format=json&${path.slice(q + 1)}`
     },
   },
+  /** VWall Google Custom Search — browser CORS; dev/preview proxy (see vwallFeeds.ts). */
+  '/vwall-google-proxy': {
+    target: 'https://www.googleapis.com',
+    changeOrigin: true,
+    rewrite: (p) => p.replace(/^\/vwall-google-proxy/, ''),
+  },
 }
 
 export default defineConfig(() => {

@@ -864,6 +864,18 @@ button.ro-ingest-live-hex-menu-summary {
   border-color: color-mix(in srgb, var(--ro-accent) 45%, var(--border));
 }
 
+.ro-ingest-live-hex-paste-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  font-size: 0.72rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: inherit;
+  box-sizing: border-box;
+}
+
 .ro-ingest-live-hex-menu-wide {
   width: 100%;
   justify-content: center;
