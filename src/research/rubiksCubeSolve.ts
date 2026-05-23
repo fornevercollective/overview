@@ -1,6 +1,6 @@
 /** Lazy Kociemba two-phase solver (bundled). */
 
-import { validateFacelets } from './rubiksCube'
+import { type CubeOrder, validateFacelets } from './rubiksCube'
 
 let solverReady: Promise<void> | null = null
 
@@ -14,8 +14,13 @@ export function initRubiksSolver(): Promise<void> {
   return solverReady
 }
 
-export async function solveFacelets(facelets: string): Promise<string> {
-  const err = validateFacelets(facelets)
+export async function solveFacelets(facelets: string, order: CubeOrder): Promise<string> {
+  if (order !== 3) {
+    throw new Error(
+      'The built-in solver is for standard 3×3 cubes only. A 4×4 needs center-building, edge pairing, and parity fixes—use the scan/net here to record your cube; 4×4 solving is not wired yet.',
+    )
+  }
+  const err = validateFacelets(facelets, order)
   if (err) throw new Error(err)
   await initRubiksSolver()
   const mod = await import('cubejs')
