@@ -157,15 +157,22 @@ export function applyLiveSampleToFace(
   return calibrateFaceStickers(stored, sample)
 }
 
+const MOVE_TOKEN = /^[URFDLBMESxyzuvw](?:'|2)?$/i
+
 export function parseSolutionMoves(solution: string): string[] {
   return solution
     .trim()
     .split(/\s+/)
-    .filter(Boolean)
-    .map((m) => m.replace(/'/g, "'").replace(/2/g, '2'))
+    .filter((t) => MOVE_TOKEN.test(t))
 }
 
 export function stickerRgbStyle(id: FaceId): string {
   const [r, g, b] = FACE_PALETTE[id].rgb
-  return `rgb(${r},${g},${b})`
+  return `rgb(${r}, ${g}, ${b})`
+}
+
+/** Semi-transparent fill for live guide cells so the camera feed stays visible. */
+export function stickerRgbOverlayStyle(id: FaceId, alpha = 0.34): string {
+  const [r, g, b] = FACE_PALETTE[id].rgb
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }

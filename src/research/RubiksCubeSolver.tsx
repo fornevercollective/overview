@@ -4,7 +4,9 @@ import {
   emptyCubeFaces,
   FACE_IDS,
   FACE_PALETTE,
+  SCAN_FACE_ORDER,
   facesToFacelets,
+  suggestedScanFace,
   sampleFaceFromImageData,
   guideRegionThumbnailFromCanvas,
   scanFaceHint,
@@ -17,7 +19,8 @@ import {
   type FaceStickers,
 } from './rubiksCube'
 import { initRubiksSolver, solveFacelets } from './rubiksCubeSolve'
-import { parseSolutionMoves, stickerRgbStyle, type WalkthroughSnapshot } from './rubiksLiveScan'
+import { REDUCTION_SOLVE_PREAMBLE } from './rubiksCube444Reduce'
+import { parseSolutionMoves, stickerRgbOverlayStyle, stickerRgbStyle, type WalkthroughSnapshot } from './rubiksLiveScan'
 import { useRubiksLiveScan } from './useRubiksLiveScan'
 import RubiksSolvePotentialPanel from './rubiksSolvePotentialPanel'
 import './rubiks-cube-solver.css'
@@ -62,7 +65,7 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
   const [scanFace, setScanFace] = useState<FaceId>('U')
   const [cameraOn, setCameraOn] = useState(true)
   const [cameraErr, setCameraErr] = useState<string | null>(null)
-  const [solverInit, setSolverInit] = useState<'idle' | 'loading' | 'ready' | 'err'>('idle')
+  const [solverInit, setSolverInit] = useState<'idle' | 'loading' | 'ready' | 'err'>('loading')
   const [solveBusy, setSolveBusy] = useState(false)
   const [solution, setSolution] = useState<string | null>(null)
   const [solveErr, setSolveErr] = useState<string | null>(null)
@@ -79,14 +82,22 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
   const videoRef = useRef<HTMLVideoElement>(null)
   const capRef = useRef<HTMLCanvasElement>(null)
   const followTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pauseFollowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pauseAutoFollow, setPauseAutoFollow] = useState(false)
 
   const facelets = useMemo(() => facesToFacelets(faces, cubeOrder), [faces, cubeOrder])
   const faceletTotal = totalFacelets(cubeOrder)
+  const suggestedScan = useMemo(() => suggestedScanFace(capturedFaces), [capturedFaces])
+  const capturedFacesRef = useRef(capturedFaces)
+
+  useEffect(() => {
+    capturedFacesRef.current = capturedFaces
+  }, [capturedFaces])
 
   const setOrder = useCallback((order: CubeOrder) => {
     setCubeOrder(order)
     setFaces(emptyCubeFaces(order))
-    setScanFace('U')
+    setScanFace('U') // first in SCAN_FACE_ORDER
     setSolution(null)
     setSolveErr(null)
     setCapturedCount(0)
@@ -95,15 +106,16 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     setWalkStep(0)
     setSnapshots([])
     setFaceStills({})
-    setSolverInit(order === 3 ? 'loading' : 'idle')
   }, [])
 
   const walkMoves = useMemo(() => (solution ? parseSolutionMoves(solution) : []), [solution])
   const currentWalkMove = walkMoves[walkStep] ?? null
 
   const onDetectedFace = useCallback((face: FaceId) => {
+    const want = suggestedScanFace(capturedFacesRef.current)
+    if (face !== want) return
     if (followTimerRef.current) clearTimeout(followTimerRef.current)
-    followTimerRef.current = setTimeout(() => setScanFace(face), 320)
+    followTimerRef.current = setTimeout(() => setScanFace(want), 320)
   }, [])
 
   const onCalibrateFace = useCallback((face: FaceId, merged: FaceStickers) => {
@@ -119,14 +131,19 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     capturedFaces,
     videoRef,
     capRef,
-    autoFollowFace,
+    autoFollowFace: autoFollowFace && !pauseAutoFollow,
     autoCalibrate,
     onDetectedFace,
     onCalibrateFace,
   })
 
   useEffect(() => {
-    if (cubeOrder !== 3 || solverInit !== 'loading') return
+    return () => {
+      if (pauseFollowTimerRef.current) clearTimeout(pauseFollowTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     initRubiksSolver()
       .then(() => {
@@ -138,7 +155,7 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     return () => {
       cancelled = true
     }
-  }, [cubeOrder, solverInit])
+  }, [])
 
   useEffect(() => {
     if (!cameraOn || mode !== 'scan') return
@@ -188,7 +205,9 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     const sampled = sampleFaceFromImageData(id, cubeOrder)
     const thumbUrl = guideRegionThumbnailFromCanvas(cap)
     setFaces((prev) => ({ ...prev, [scanFace]: sampled }))
-    setCapturedFaces((prev) => new Set(prev).add(scanFace))
+    const capturedAfter = new Set(capturedFaces)
+    capturedAfter.add(scanFace)
+    setCapturedFaces(capturedAfter)
     if (thumbUrl) {
       setFaceStills((prev) => ({
         ...prev,
@@ -198,9 +217,14 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     setCapturedCount((n) => n + 1)
     setSolution(null)
     setSolveErr(null)
-    const idx = FACE_IDS.indexOf(scanFace)
-    if (idx >= 0 && idx < FACE_IDS.length - 1) setScanFace(FACE_IDS[idx + 1]!)
-  }, [scanFace, cubeOrder])
+    setScanFace(suggestedScanFace(capturedAfter))
+    if (pauseFollowTimerRef.current) clearTimeout(pauseFollowTimerRef.current)
+    setPauseAutoFollow(true)
+    pauseFollowTimerRef.current = setTimeout(() => {
+      setPauseAutoFollow(false)
+      pauseFollowTimerRef.current = null
+    }, 2200)
+  }, [scanFace, cubeOrder, capturedFaces])
 
   const setSticker = useCallback((face: FaceId, cell: number, color: FaceId) => {
     setFaces((prev) => {
@@ -266,7 +290,9 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
   }, [])
 
   const renderFaceGrid = (faceId: FaceId, interactive: boolean) => (
-    <div className={`rubiks-net-face${scanFace === faceId && mode === 'scan' ? ' is-scan-target' : ''}`}>
+    <div
+      className={`rubiks-net-face${scanFace === faceId && mode === 'scan' ? ' is-scan-target' : ''}${suggestedScan === faceId && mode === 'scan' && capturedFaces.size < 6 ? ' is-scan-suggested' : ''}`}
+    >
       <span className="rubiks-net-label">
         {faceId}
         {cubeOrder === 4 && faceId === 'U' ? ' · logo' : ''}
@@ -290,8 +316,7 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     </div>
   )
 
-  const solveDisabled =
-    solveBusy || (cubeOrder === 3 && solverInit === 'loading') || (cubeOrder === 3 && solverInit === 'err')
+  const solveDisabled = solveBusy || solverInit === 'loading' || solverInit === 'err'
 
   return (
     <div className="ro-shell rubiks-page">
@@ -302,12 +327,12 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
         <div className="rubiks-header-text">
           <h1 className="rubiks-title">Rubik&apos;s cube camera solver</h1>
           <p className="rubiks-lead muted">
-            Default is <strong>4×4</strong> (e.g. Rubik&apos;s logo on the white / Up side). Scan each face in the
-            camera guide or paint the net by hand. The automatic solver is <strong>3×3 only</strong>; use 4×4 mode to
-            capture and correct colors, then switch to 3×3 if you are practicing on a smaller cube.
-            {cubeOrder === 3 && solverInit === 'loading'
+            Built for a <strong>4×4</strong> with the Rubik&apos;s logo on white / <strong>U</strong>. Capture faces in
+            order <strong>U → F → R → B → L → D</strong> (live overlay, stills column, solve-potential meter).{' '}
+            <strong>3×3</strong> uses Kociemba directly; <strong>4×4</strong> merges center 2×2 blocks then runs the same solver (pair edges on the cube if needed).
+            {solverInit === 'loading'
               ? ' Solver tables are loading…'
-              : cubeOrder === 3 && solverInit === 'err'
+              : solverInit === 'err'
                 ? ' Solver failed to initialize.'
                 : ''}
           </p>
@@ -355,20 +380,38 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
           {mode === 'scan' ? (
             <>
               <div className="rubiks-face-tabs" role="tablist" aria-label="Face to scan">
-                {FACE_IDS.map((id) => (
+                {SCAN_FACE_ORDER.map((id) => (
                   <button
                     key={id}
                     type="button"
                     role="tab"
                     aria-selected={scanFace === id}
-                    className={`ro-btn ro-btn-ghost${scanFace === id ? ' is-active' : ''}${live?.best === id ? ' rubiks-face-tab--detected' : ''}`}
+                    className={`ro-btn ro-btn-ghost${scanFace === id ? ' is-active' : ''}${suggestedScan === id && capturedFaces.size < 6 ? ' rubiks-face-tab--suggested' : ''}${live?.best === id ? ' rubiks-face-tab--detected' : ''}${capturedFaces.has(id) ? ' rubiks-face-tab--captured' : ''}`}
                     onClick={() => setScanFace(id)}
                   >
                     {id}
                   </button>
                 ))}
               </div>
-              <p className="rubiks-hint muted">{scanFaceHint(scanFace, cubeOrder)}</p>
+              <p className="rubiks-hint muted">
+                {scanFaceHint(scanFace, cubeOrder)}
+                {capturedFaces.size < 6 ? (
+                  <>
+                    {' '}
+                    · Next in order:{' '}
+                    <strong>{suggestedScan}</strong> ({capturedFaces.size}/6 captured)
+                  </>
+                ) : (
+                  ' · All faces captured — recapture any tab to update.'
+                )}
+              </p>
+              {scanFace !== suggestedScan && capturedFaces.size < 6 ? (
+                <p className="rubiks-hint rubiks-hint--next">
+                  <button type="button" className="ro-btn ro-btn-ghost rubiks-jump-next" onClick={() => setScanFace(suggestedScan)}>
+                    Jump to next: {suggestedScan}
+                  </button>
+                </p>
+              ) : null}
               <div className="rubiks-live-toggles" role="group" aria-label="Live scan options">
                 <label className="rubiks-check">
                   <input type="checkbox" checked={autoScan} onChange={(e) => setAutoScan(e.target.checked)} />
@@ -399,12 +442,13 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
                 </button>
                 <button type="button" className="ro-btn ro-btn-accent" disabled={!cameraOn} onClick={captureScanFace}>
                   Capture {scanFace} face
+                  {scanFace !== suggestedScan && capturedFaces.size < 6 ? ` (next: ${suggestedScan})` : ''}
                 </button>
                 <span className="muted rubiks-hint">{capturedCount} capture{capturedCount === 1 ? '' : 's'}</span>
               </div>
               <div className="rubiks-video-row">
                 <div className="rubiks-face-stills" aria-label="Face capture snapshots">
-                  {FACE_IDS.map((id) => {
+                  {SCAN_FACE_ORDER.map((id) => {
                     const still = faceStills[id]
                     const active = scanFace === id
                     const hasStill = Boolean(still)
@@ -463,7 +507,7 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
                       <div
                         key={i}
                         className={`rubiks-guide-cell${live ? ' rubiks-guide-cell--live' : ''}`}
-                        style={live ? { background: stickerRgbStyle(id) } : undefined}
+                        style={live ? { background: stickerRgbOverlayStyle(id) } : undefined}
                       />
                     ))}
                   </div>
@@ -548,6 +592,7 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
                 setCapturedFaces(new Set())
                 setFaceStills({})
                 setCapturedCount(0)
+                setScanFace('U')
                 setSolution(null)
                 setSolveErr(null)
               }}
@@ -560,21 +605,15 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
               disabled={solveDisabled}
               onClick={() => void runSolve()}
             >
-              {solveBusy ? 'Solving…' : cubeOrder === 4 ? 'Solve (3×3 only)' : 'Solve cube'}
+              {solveBusy ? 'Solving…' : 'Solve cube'}
             </button>
           </div>
-          {cubeOrder === 4 ? (
-            <p className="rubiks-hint muted">
-              4×4 record mode: scan stores all 16 stickers per face. Tap <strong>Solve (3×3 only)</strong> to see why
-              auto-solve is not available for your cube yet.
-            </p>
-          ) : null}
           {solveErr ? (
             <p className="rubiks-err" role="alert">
               {solveErr}
             </p>
           ) : null}
-          {solution && cubeOrder === 3 ? (
+          {solution ? (
             <div className="rubiks-walkthrough">
               <p className="rubiks-hint muted">
                 Walkthrough: apply each move, then snapshot or let live scan refresh the net.
@@ -636,8 +675,11 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
           ) : null}
           {solution ? (
             <>
+              {cubeOrder === 4 ? (
+                <p className="rubiks-hint muted rubiks-four-note">{REDUCTION_SOLVE_PREAMBLE}</p>
+              ) : null}
               <p className="rubiks-hint muted">
-                {solution.split(/\s+/).filter(Boolean).length} moves (standard face-turn notation).
+                {walkMoves.length} moves (face-turn notation{cubeOrder === 4 ? ', 3×3 phase' : ''}).
               </p>
               <pre className="rubiks-solution">{solution}</pre>
               <button

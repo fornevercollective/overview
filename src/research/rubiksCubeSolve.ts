@@ -1,6 +1,7 @@
 /** Lazy Kociemba two-phase solver (bundled). */
 
-import { type CubeOrder, validateFacelets } from './rubiksCube'
+import { faceletsToFaces, type CubeOrder, validateFacelets } from './rubiksCube'
+import { REDUCTION_SOLVE_PREAMBLE, reduce444FacesTo333Facelets } from './rubiksCube444Reduce'
 
 let solverReady: Promise<void> | null = null
 
@@ -14,13 +15,8 @@ export function initRubiksSolver(): Promise<void> {
   return solverReady
 }
 
-export async function solveFacelets(facelets: string, order: CubeOrder): Promise<string> {
-  if (order !== 3) {
-    throw new Error(
-      'The built-in solver is for standard 3×3 cubes only. A 4×4 needs center-building, edge pairing, and parity fixes—use the scan/net here to record your cube; 4×4 solving is not wired yet.',
-    )
-  }
-  const err = validateFacelets(facelets, order)
+async function solve333Facelets(facelets: string): Promise<string> {
+  const err = validateFacelets(facelets, 3)
   if (err) throw new Error(err)
   await initRubiksSolver()
   const mod = await import('cubejs')
@@ -29,4 +25,17 @@ export async function solveFacelets(facelets: string, order: CubeOrder): Promise
   const alg = cube.solve()
   if (!alg || typeof alg !== 'string') throw new Error('Solver returned no solution.')
   return alg.trim()
+}
+
+export async function solveFacelets(facelets: string, order: CubeOrder): Promise<string> {
+  if (order === 4) {
+    const faces = faceletsToFaces(facelets, 4)
+    if (!faces) throw new Error('Invalid 4×4 face data.')
+    const err4 = validateFacelets(facelets, 4)
+    if (err4) throw new Error(err4)
+    const reduced = reduce444FacesTo333Facelets(faces)
+    const inner = await solve333Facelets(reduced)
+    return `${REDUCTION_SOLVE_PREAMBLE}\n\n${inner}`
+  }
+  return solve333Facelets(facelets)
 }

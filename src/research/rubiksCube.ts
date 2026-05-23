@@ -6,7 +6,26 @@ export const DEFAULT_CUBE_ORDER: CubeOrder = 4
 
 export type FaceId = 'U' | 'R' | 'F' | 'D' | 'L' | 'B'
 
+/** Kociemba / cubejs string order (do not use for camera scan flow). */
 export const FACE_IDS: FaceId[] = ['U', 'R', 'F', 'D', 'L', 'B']
+
+/**
+ * Recommended physical scan order: Up first, four sides clockwise (F→R→B→L) with U on top, then Down.
+ */
+export const SCAN_FACE_ORDER: FaceId[] = ['U', 'F', 'R', 'B', 'L', 'D']
+
+/** First face not yet captured, in recommended scan order (U → F → R → B → L → D). */
+export function suggestedScanFace(captured: ReadonlySet<FaceId>): FaceId {
+  for (const id of SCAN_FACE_ORDER) {
+    if (!captured.has(id)) return id
+  }
+  return SCAN_FACE_ORDER[0]!
+}
+
+export function scanOrderIndex(face: FaceId): number {
+  const i = SCAN_FACE_ORDER.indexOf(face)
+  return i >= 0 ? i + 1 : 0
+}
 
 export function faceStickerCount(order: CubeOrder): number {
   return order * order
