@@ -95,7 +95,7 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     setWalkStep(0)
     setSnapshots([])
     setFaceStills({})
-    setSolverInit('idle')
+    setSolverInit(order === 3 ? 'loading' : 'idle')
   }, [])
 
   const walkMoves = useMemo(() => (solution ? parseSolutionMoves(solution) : []), [solution])
@@ -126,9 +126,8 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
   })
 
   useEffect(() => {
-    if (cubeOrder !== 3) return
+    if (cubeOrder !== 3 || solverInit !== 'loading') return
     let cancelled = false
-    setSolverInit('loading')
     initRubiksSolver()
       .then(() => {
         if (!cancelled) setSolverInit('ready')
@@ -139,7 +138,7 @@ export default function RubiksCubeSolver({ onBack, onOpenVideoLab }: RubiksCubeS
     return () => {
       cancelled = true
     }
-  }, [cubeOrder])
+  }, [cubeOrder, solverInit])
 
   useEffect(() => {
     if (!cameraOn || mode !== 'scan') return

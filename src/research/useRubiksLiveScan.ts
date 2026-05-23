@@ -44,16 +44,25 @@ export function useRubiksLiveScan({
   const lastTickRef = useRef(0)
   const lastCalibRef = useRef(0)
   const facesRef = useRef(faces)
-  facesRef.current = faces
   const scanFaceRef = useRef(scanFace)
-  scanFaceRef.current = scanFace
+
+  const active = enabled && cameraOn
 
   useEffect(() => {
-    if (!enabled || !cameraOn) {
-      setLive(null)
-      prevBestRef.current = null
-      return
-    }
+    facesRef.current = faces
+  }, [faces])
+
+  useEffect(() => {
+    scanFaceRef.current = scanFace
+  }, [scanFace])
+
+  useEffect(() => {
+    if (active) return
+    prevBestRef.current = null
+  }, [active])
+
+  useEffect(() => {
+    if (!active) return
 
     let raf = 0
     const loop = (t: number) => {
@@ -77,8 +86,8 @@ export function useRubiksLiveScan({
 
       setLive(det)
 
-      const active = scanFaceRef.current
-      if (det.best && det.confidence >= AUTO_TAB_THRESHOLD && autoFollowFace && det.best !== active) {
+      const face = scanFaceRef.current
+      if (det.best && det.confidence >= AUTO_TAB_THRESHOLD && autoFollowFace && det.best !== face) {
         onDetectedFace?.(det.best)
       }
 
@@ -86,13 +95,13 @@ export function useRubiksLiveScan({
         det.best &&
         det.confidence >= CALIBRATE_THRESHOLD &&
         autoCalibrate &&
-        det.best === active &&
+        det.best === face &&
         t - lastCalibRef.current > 450
       ) {
-        const merged = calibrateFaceStickers(facesRef.current[active], det.sample)
-        if (merged.some((c, i) => c !== facesRef.current[active][i])) {
+        const merged = calibrateFaceStickers(facesRef.current[face], det.sample)
+        if (merged.some((c, i) => c !== facesRef.current[face][i])) {
           lastCalibRef.current = t
-          onCalibrateFace?.(active, merged)
+          onCalibrateFace?.(face, merged)
         }
       }
     }
@@ -100,8 +109,7 @@ export function useRubiksLiveScan({
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
   }, [
-    enabled,
-    cameraOn,
+    active,
     cubeOrder,
     capturedFaces,
     autoFollowFace,
@@ -112,5 +120,5 @@ export function useRubiksLiveScan({
     onCalibrateFace,
   ])
 
-  return live
+  return active ? live : null
 }
