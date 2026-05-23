@@ -1,0 +1,231 @@
+.rubiks-page.ro-shell {
+  max-width: none;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: clamp(14px, 2.5vw, 28px) clamp(12px, 3vw, 36px) clamp(28px, 5vw, 56px);
+  box-sizing: border-box;
+  gap: clamp(14px, 2vw, 22px);
+}
+
+.rubiks-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rubiks-header-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.rubiks-title {
+  margin: 0 0 0.35rem;
+  font-family: var(--ro-font-serif);
+  font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.rubiks-lead {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  max-width: 44rem;
+}
+
+.rubiks-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 16px 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .rubiks-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rubiks-scan-panel,
+.rubiks-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rubiks-video-wrap {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  max-height: min(52vh, 420px);
+  background: #0a0a0c;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.rubiks-video-wrap video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.rubiks-scan-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.rubiks-guide-grid {
+  position: absolute;
+  inset: 18%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 2px;
+  border: 2px solid color-mix(in srgb, var(--ro-accent) 70%, #fff 30%);
+  border-radius: 4px;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.35);
+}
+
+.rubiks-guide-cell {
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: 2px;
+}
+
+.rubiks-face-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rubiks-face-tabs .ro-btn.is-active {
+  border-color: color-mix(in srgb, var(--ro-accent) 50%, var(--border));
+}
+
+.rubiks-scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rubiks-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.rubiks-net {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  grid-template-rows: repeat(3, auto);
+  gap: 6px;
+  justify-content: start;
+  font-family: var(--ro-font-mono);
+  font-size: 0.62rem;
+}
+
+.rubiks-net-face {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--code-bg) 8%);
+}
+
+.rubiks-net-face.is-scan-target {
+  outline: 2px solid var(--ro-accent);
+  outline-offset: 1px;
+}
+
+.rubiks-net-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+.rubiks-net-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1.35rem);
+  gap: 2px;
+}
+
+.rubiks-sticker {
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 1px solid rgb(0 0 0 / 0.2);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.rubiks-sticker:focus-visible {
+  outline: 2px solid var(--ro-accent);
+  outline-offset: 1px;
+}
+
+.rubiks-net-slot--u {
+  grid-column: 2;
+  grid-row: 1;
+}
+.rubiks-net-slot--l {
+  grid-column: 1;
+  grid-row: 2;
+}
+.rubiks-net-slot--f {
+  grid-column: 2;
+  grid-row: 2;
+}
+.rubiks-net-slot--r {
+  grid-column: 3;
+  grid-row: 2;
+}
+.rubiks-net-slot--b {
+  grid-column: 4;
+  grid-row: 2;
+}
+.rubiks-net-slot--d {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.rubiks-solution {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--ro-font-mono);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  word-break: break-word;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.rubiks-err {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--ro-danger, #c62828);
+}
+
+.rubiks-mode-toggle {
+  display: flex;
+  gap: 6px;
+}
+
+.rubiks-page .vfl-hidden-cap {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}

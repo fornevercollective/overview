@@ -70,6 +70,7 @@ export type LiveHexIngestThumbnailsProps = {
   onOpenVideoLab?: () => void
   /** Opens hex snake — body trail from live frames (optional). */
   onOpenHexSnake?: () => void
+  onOpenRubiksCube?: () => void
 }
 
 /**
@@ -82,6 +83,7 @@ export type LiveHexIngestThumbnailsProps = {
 export default function LiveHexIngestThumbnails({
   onOpenVideoLab,
   onOpenHexSnake,
+  onOpenRubiksCube,
 }: LiveHexIngestThumbnailsProps) {
   const [active, setActive] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
@@ -653,7 +655,7 @@ export default function LiveHexIngestThumbnails({
               </p>
             ) : null}
           </div>
-          {onOpenVideoLab || onOpenHexSnake ? (
+          {onOpenVideoLab || onOpenHexSnake || onOpenRubiksCube ? (
             <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
               {onOpenVideoLab ? (
                 <button
@@ -681,6 +683,19 @@ export default function LiveHexIngestThumbnails({
                   }}
                 >
                   Play hex snake…
+                </button>
+              ) : null}
+              {onOpenRubiksCube ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-wide"
+                  onClick={() => {
+                    closeMenu()
+                    onOpenRubiksCube()
+                  }}
+                >
+                  Rubik&apos;s cube solver…
                 </button>
               ) : null}
             </div>

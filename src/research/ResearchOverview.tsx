@@ -582,6 +582,8 @@ export type ResearchOverviewProps = {
   onOpenVideoLab?: () => void
   /** Footer + hero live-hex menu: hex snake game with video-frame trail (optional). */
   onOpenHexSnake?: () => void
+  /** Footer + hero live-hex menu: Rubik&apos;s cube camera / net solver (optional). */
+  onOpenRubiksCube?: () => void
 } & ResearchOverviewCorpusHandlers
 
 const SEED_DEBOUNCE_MS = 900
@@ -834,6 +836,7 @@ export default function ResearchOverview({
   onOpenSession,
   onOpenVideoLab,
   onOpenHexSnake,
+  onOpenRubiksCube,
   onTranscriptIngest,
   onCorpusSearch,
 }: ResearchOverviewProps) {
@@ -2951,7 +2954,11 @@ export default function ResearchOverview({
             </div>
           </div>
           <div className="ro-ingest-stack">
-            <LiveHexIngestThumbnails onOpenVideoLab={onOpenVideoLab} onOpenHexSnake={onOpenHexSnake} />
+            <LiveHexIngestThumbnails
+              onOpenVideoLab={onOpenVideoLab}
+              onOpenHexSnake={onOpenHexSnake}
+              onOpenRubiksCube={onOpenRubiksCube}
+            />
             <div className="ro-ingest-field">
               <input
                 type="text"
@@ -3936,7 +3943,13 @@ export default function ResearchOverview({
         </div>
       </dialog>
 
-      {onOpenSummary || onOpenPresentation || onOpenSketch || onOpenSession || onOpenVideoLab || onOpenHexSnake ? (
+      {onOpenSummary ||
+      onOpenPresentation ||
+      onOpenSketch ||
+      onOpenSession ||
+      onOpenVideoLab ||
+      onOpenHexSnake ||
+      onOpenRubiksCube ? (
         <footer className="ro-app-footer">
           <div
             className="ro-app-footer-status"
@@ -4052,6 +4065,16 @@ export default function ResearchOverview({
             {onOpenHexSnake ? (
               <button type="button" className="ro-app-footer-link" onClick={onOpenHexSnake}>
                 Hex snake
+              </button>
+            ) : null}
+            {onOpenHexSnake && onOpenRubiksCube ? (
+              <span className="ro-app-footer-sep" aria-hidden>
+                ·
+              </span>
+            ) : null}
+            {onOpenRubiksCube ? (
+              <button type="button" className="ro-app-footer-link" onClick={onOpenRubiksCube}>
+                Cube solver
               </button>
             ) : null}
           </div>

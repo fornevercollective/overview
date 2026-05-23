@@ -40,6 +40,7 @@ import './video-feeds-lab.css'
 export type VideoFeedsLabProps = {
   onBack: () => void
   onOpenHexSnake?: () => void
+  onOpenRubiksCube?: () => void
 }
 
 const CAMERA_FEED = '__camera__'
@@ -185,7 +186,7 @@ function effectiveFeedKey(feedOrder: string[], activeIdx: number, pinnedKey: str
   return at
 }
 
-export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabProps) {
+export default function VideoFeedsLab({ onBack, onOpenHexSnake, onOpenRubiksCube }: VideoFeedsLabProps) {
   const [feedOrder, setFeedOrder] = useState<string[]>([DEFAULT_FEED])
   const [activeIdx, setActiveIdx] = useState(0)
   const [pinnedKey, setPinnedKey] = useState<string | null>(null)
@@ -2077,6 +2078,11 @@ export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabP
             {onOpenHexSnake ? (
               <button type="button" className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary" onClick={onOpenHexSnake}>
                 Snake
+              </button>
+            ) : null}
+            {onOpenRubiksCube ? (
+              <button type="button" className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary" onClick={onOpenRubiksCube}>
+                Cube
               </button>
             ) : null}
             <section className="vfl-panel vfl-stage-effects vfl-header-effects" aria-label="Effects preset">

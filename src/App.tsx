@@ -9,6 +9,7 @@ const Summary = lazy(() => import('./Summary'))
 const Session = lazy(() => import('./Session'))
 const VideoFeedsLab = lazy(() => import('./research/VideoFeedsLab'))
 const LiveHexSnake = lazy(() => import('./research/LiveHexSnake'))
+const RubiksCubeSolver = lazy(() => import('./research/RubiksCubeSolver'))
 
 const routeFallback = <div style={{ padding: 24 }}>Loading…</div>
 
@@ -22,7 +23,7 @@ const onWorkspaceAssistant: ResearchOverviewProps['onWorkspaceAssistant'] = useA
 
 export default function App() {
   const [page, setPage] = useState<
-    'app' | 'summary' | 'presentation' | 'sketch' | 'session' | 'videoLab' | 'hexSnake'
+    'app' | 'summary' | 'presentation' | 'sketch' | 'session' | 'videoLab' | 'hexSnake' | 'rubiksCube'
   >('app')
   const lastWorkspaceSnapshotRef = useRef<OverviewWorkspaceSnapshot | null>(null)
 
@@ -36,6 +37,7 @@ export default function App() {
   const openSession = useCallback(() => setPage('session'), [])
   const openVideoLab = useCallback(() => setPage('videoLab'), [])
   const openHexSnake = useCallback(() => setPage('hexSnake'), [])
+  const openRubiksCube = useCallback(() => setPage('rubiksCube'), [])
   const backToWorkspace = useCallback(() => setPage('app'), [])
   const exportFromSummary = useCallback(() => {
     window.location.hash = '#workspace-export'
@@ -87,7 +89,11 @@ export default function App() {
   if (page === 'videoLab') {
     return (
       <Suspense fallback={routeFallback}>
-        <VideoFeedsLab onBack={backToWorkspace} onOpenHexSnake={openHexSnake} />
+        <VideoFeedsLab
+          onBack={backToWorkspace}
+          onOpenHexSnake={openHexSnake}
+          onOpenRubiksCube={openRubiksCube}
+        />
       </Suspense>
     )
   }
@@ -96,6 +102,14 @@ export default function App() {
     return (
       <Suspense fallback={routeFallback}>
         <LiveHexSnake onBack={backToWorkspace} onOpenVideoLab={openVideoLab} />
+      </Suspense>
+    )
+  }
+
+  if (page === 'rubiksCube') {
+    return (
+      <Suspense fallback={routeFallback}>
+        <RubiksCubeSolver onBack={backToWorkspace} onOpenVideoLab={openVideoLab} />
       </Suspense>
     )
   }
@@ -110,6 +124,7 @@ export default function App() {
       onOpenSession={openSession}
       onOpenVideoLab={openVideoLab}
       onOpenHexSnake={openHexSnake}
+      onOpenRubiksCube={openRubiksCube}
       onWorkspaceChange={onWorkspaceChange}
     />
   )
