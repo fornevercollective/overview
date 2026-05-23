@@ -1,0 +1,162 @@
+/* Hex Snake — live video frames as motion trail (arcade shell like mueee games) */
+
+.hex-snake-page.ro-shell {
+  max-width: none;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: clamp(14px, 2.5vw, 28px) clamp(12px, 3vw, 36px) clamp(28px, 5vw, 56px);
+  box-sizing: border-box;
+  gap: clamp(14px, 2vw, 22px);
+}
+
+.hex-snake-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hex-snake-header-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.hex-snake-title {
+  margin: 0 0 0.35rem;
+  font-family: var(--ro-font-serif);
+  font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-h);
+}
+
+.hex-snake-lead {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  max-width: 42rem;
+  color: color-mix(in srgb, var(--text) 92%, var(--text-h) 8%);
+}
+
+.hex-snake-scoreboard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  font-family: var(--ro-font-mono);
+  font-size: 0.72rem;
+}
+
+.hex-snake-scoreboard strong {
+  color: var(--ro-accent);
+}
+
+.hex-snake-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.hex-snake-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: clamp(16px, 3vw, 28px);
+}
+
+.hex-snake-board-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hex-snake-board {
+  display: block;
+  border: 2px solid var(--border);
+  background: var(--code-bg);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  touch-action: none;
+}
+
+.hex-snake-board:focus-visible {
+  outline: 2px solid var(--ro-accent);
+  outline-offset: 2px;
+}
+
+.hex-snake-status {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--ro-muted);
+  min-height: 1.2em;
+}
+
+.hex-snake-status.is-dead {
+  color: var(--ro-warn, #b45309);
+}
+
+.hex-snake-side {
+  flex: 1 1 14rem;
+  min-width: 12rem;
+  max-width: 22rem;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hex-snake-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.hex-snake-strip-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ro-muted);
+  width: 100%;
+  margin: 0 0 2px;
+}
+
+.hex-snake-thumb {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.hex-snake-thumb.is-live {
+  box-shadow: 0 0 0 1px var(--ro-accent);
+}
+
+.hex-snake-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--ro-muted);
+}
+
+.hex-snake-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  font-family: var(--ro-font-serif);
+  font-size: 1.1rem;
+  pointer-events: none;
+}
+
+.hex-snake-board-outer {
+  position: relative;
+  flex: 0 0 auto;
+}

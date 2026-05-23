@@ -845,14 +845,21 @@ button.ro-ingest-live-hex-menu-summary {
   margin-top: 4px;
 }
 
+.ro-ingest-live-hex-menu-row--looks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .ro-ingest-live-hex-menu-row--looks .ro-ingest-live-hex-menu-label {
-  flex: 0 0 100%;
+  grid-column: 1 / -1;
+  flex: unset;
   margin-bottom: 2px;
 }
 
 .ro-ingest-live-hex-menu-row--looks .ro-ingest-live-hex-menu-action {
-  flex: 1 1 auto;
-  min-width: 3.5rem;
+  flex: unset;
+  min-width: 0;
+  width: 100%;
 }
 
 .ro-ingest-live-hex-menu-label {

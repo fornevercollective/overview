@@ -6,12 +6,13 @@
 export const LIVE_HEX_DOCUMENT_CHANNEL = 'overview-live-hex'
 
 /** Decode modes supported by `thermalRgb` / `drawHexFrame`. */
-export type HexDecodeMode = 'gray' | 'color' | 'fax' | 'signal'
+export type HexDecodeMode = 'gray' | 'color' | 'rgb' | 'fax' | 'signal'
 
 export const HEX_CAMERA_LOOKS: { id: HexDecodeMode; label: string }[] = [
   { id: 'gray', label: 'Mono' },
   { id: 'color', label: 'Thermal' },
   { id: 'fax', label: 'Fax' },
+  { id: 'rgb', label: 'Color' },
   { id: 'signal', label: 'Signal' },
 ]
 
@@ -74,6 +75,9 @@ export function thermalRgb(val: number, mode: string): [number, number, number] 
   if (mode === 'color') {
     const hue = (1 - n) * 200
     return hslToRgb(hue / 360, 0.85, (20 + n * 50) / 100)
+  }
+  if (mode === 'rgb') {
+    return [v, v, v]
   }
   if (mode === 'gray') {
     const g = Math.floor(n * 220)

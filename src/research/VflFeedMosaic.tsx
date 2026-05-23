@@ -8,6 +8,8 @@ const RAIL_ROWS = 7
 const RAIL_THUMB_PX = 40
 const WALL_THUMB_PX = 56
 const WALL_MAX_TILES = 120
+const CHAT_THUMB_SLOTS = 4
+const CHAT_THUMB_PX = 64
 
 const RAIL_TILE_TOPO = (() => {
   const tiles: { key: string; nx: number; ny: number; i: number; zSlot: number }[] = []
@@ -214,4 +216,112 @@ export function VflFeedMosaic({
 /** @deprecated Use VflFeedMosaic variant="rail" */
 export function VflBumpRail(props: Omit<VflFeedMosaicProps, 'variant'>) {
   return <VflFeedMosaic {...props} variant="rail" />
+}
+
+export type VflShoulderChatThumbsProps = {
+  framesRef: RefObject<Record<string, HexFrameMsg>>
+  feedKeys: string[]
+  thumbSeq: number
+  activeFeedKey?: string | null
+  onSelectFeed?: (feedKey: string) => void
+  offThumbRef?: RefObject<HTMLCanvasElement | null>
+}
+
+/** 2×2 live hex previews above room chat (up to four feeds). */
+export function VflShoulderChatThumbs({
+  framesRef,
+  feedKeys,
+  thumbSeq,
+  activeFeedKey = null,
+  onSelectFeed,
+  offThumbRef,
+}: VflShoulderChatThumbsProps) {
+  const tileRefs = useRef<(HTMLCanvasElement | null)[]>([])
+  const slotKeys = useMemo(() => {
+    const prefer = feedKeys.filter((k) => k !== DEFAULT_FEED)
+    const list = prefer.length > 0 ? prefer : feedKeys
+    const out: (string | null)[] = list.slice(0, CHAT_THUMB_SLOTS)
+    while (out.length < CHAT_THUMB_SLOTS) out.push(null)
+    return out
+  }, [feedKeys])
+
+  useLayoutEffect(() => {
+    const frames = framesRef.current
+    const g = getComputedStyle(document.documentElement)
+    const emptyFill = g.getPropertyValue('--code-bg').trim() || '#f4f4f5'
+    let off = offThumbRef?.current
+    if (!off && typeof document !== 'undefined') {
+      off = document.createElement('canvas')
+      if (offThumbRef) offThumbRef.current = off
+    }
+
+    const paint = (dest: HTMLCanvasElement, fk: string | null) => {
+      const dctx = dest.getContext('2d')
+      if (!dctx) return
+      if (!fk) {
+        dctx.fillStyle = emptyFill
+        dctx.fillRect(0, 0, CHAT_THUMB_PX, CHAT_THUMB_PX)
+        return
+      }
+      const msg = frames?.[fk]
+      if (!msg || !off) {
+        dctx.fillStyle = emptyFill
+        dctx.fillRect(0, 0, CHAT_THUMB_PX, CHAT_THUMB_PX)
+        return
+      }
+      const res = Math.floor(msg.res)
+      const hex = Uint8Array.from(msg.hex)
+      if (hex.length !== res * res) {
+        dctx.fillStyle = emptyFill
+        dctx.fillRect(0, 0, CHAT_THUMB_PX, CHAT_THUMB_PX)
+        return
+      }
+      const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
+      drawHexFrame(dest, off, hex, res, mode, CHAT_THUMB_PX)
+    }
+
+    for (let i = 0; i < CHAT_THUMB_SLOTS; i++) {
+      const dest = tileRefs.current[i]
+      if (!dest) continue
+      paint(dest, slotKeys[i])
+    }
+  }, [thumbSeq, slotKeys, framesRef, offThumbRef])
+
+  return (
+    <div className="vfl-chat-feed-grid" role="group" aria-label="Live feed thumbnails">
+      {slotKeys.map((fk, i) => {
+        const label = fk ?? `empty-${i}`
+        const selected = fk != null && activeFeedKey === fk
+        if (!fk) {
+          return (
+            <div key={label} className="vfl-chat-feed-slot vfl-chat-feed-slot--empty" aria-hidden>
+              <span className="vfl-chat-feed-placeholder muted">—</span>
+            </div>
+          )
+        }
+        return (
+          <button
+            key={fk}
+            type="button"
+            className={`vfl-chat-feed-slot${selected ? ' is-active' : ''}`}
+            title={fk}
+            aria-label={`Focus feed ${fk}`}
+            aria-pressed={selected}
+            onClick={() => onSelectFeed?.(fk)}
+          >
+            <canvas
+              ref={(el) => {
+                tileRefs.current[i] = el
+              }}
+              className="vfl-chat-feed-canvas"
+              width={CHAT_THUMB_PX}
+              height={CHAT_THUMB_PX}
+              aria-hidden
+            />
+            <span className="vfl-chat-feed-label">{fk}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }

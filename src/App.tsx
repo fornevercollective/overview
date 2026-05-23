@@ -8,6 +8,7 @@ const Presentation = lazy(() => import('./Presentation'))
 const Summary = lazy(() => import('./Summary'))
 const Session = lazy(() => import('./Session'))
 const VideoFeedsLab = lazy(() => import('./research/VideoFeedsLab'))
+const LiveHexSnake = lazy(() => import('./research/LiveHexSnake'))
 
 const routeFallback = <div style={{ padding: 24 }}>Loading…</div>
 
@@ -21,7 +22,7 @@ const onWorkspaceAssistant: ResearchOverviewProps['onWorkspaceAssistant'] = useA
 
 export default function App() {
   const [page, setPage] = useState<
-    'app' | 'summary' | 'presentation' | 'sketch' | 'session' | 'videoLab'
+    'app' | 'summary' | 'presentation' | 'sketch' | 'session' | 'videoLab' | 'hexSnake'
   >('app')
   const lastWorkspaceSnapshotRef = useRef<OverviewWorkspaceSnapshot | null>(null)
 
@@ -34,6 +35,7 @@ export default function App() {
   const openSketch = useCallback(() => setPage('sketch'), [])
   const openSession = useCallback(() => setPage('session'), [])
   const openVideoLab = useCallback(() => setPage('videoLab'), [])
+  const openHexSnake = useCallback(() => setPage('hexSnake'), [])
   const backToWorkspace = useCallback(() => setPage('app'), [])
   const exportFromSummary = useCallback(() => {
     window.location.hash = '#workspace-export'
@@ -85,7 +87,15 @@ export default function App() {
   if (page === 'videoLab') {
     return (
       <Suspense fallback={routeFallback}>
-        <VideoFeedsLab onBack={backToWorkspace} />
+        <VideoFeedsLab onBack={backToWorkspace} onOpenHexSnake={openHexSnake} />
+      </Suspense>
+    )
+  }
+
+  if (page === 'hexSnake') {
+    return (
+      <Suspense fallback={routeFallback}>
+        <LiveHexSnake onBack={backToWorkspace} onOpenVideoLab={openVideoLab} />
       </Suspense>
     )
   }
@@ -99,6 +109,7 @@ export default function App() {
       onOpenSketch={openSketch}
       onOpenSession={openSession}
       onOpenVideoLab={openVideoLab}
+      onOpenHexSnake={openHexSnake}
       onWorkspaceChange={onWorkspaceChange}
     />
   )

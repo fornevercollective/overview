@@ -65,6 +65,8 @@ function effectiveFeedKey(feedOrder: string[], activeIdx: number, pinnedKey: str
 export type LiveHexIngestThumbnailsProps = {
   /** Opens the full-page video / hex feeds playground (optional). */
   onOpenVideoLab?: () => void
+  /** Opens hex snake — body trail from live frames (optional). */
+  onOpenHexSnake?: () => void
 }
 
 /**
@@ -74,7 +76,10 @@ export type LiveHexIngestThumbnailsProps = {
  *
  * Optional: **`VITE_RELAY_HEXCAST_STREAM=1`** listens on `hexcast-stream` (mueee legacy).
  */
-export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexIngestThumbnailsProps) {
+export default function LiveHexIngestThumbnails({
+  onOpenVideoLab,
+  onOpenHexSnake,
+}: LiveHexIngestThumbnailsProps) {
   const [active, setActive] = useState(false)
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user')
@@ -645,21 +650,36 @@ export default function LiveHexIngestThumbnails({ onOpenVideoLab }: LiveHexInges
               </p>
             ) : null}
           </div>
-          {onOpenVideoLab ? (
+          {onOpenVideoLab || onOpenHexSnake ? (
             <div className="ro-ingest-live-hex-menu-row ro-ingest-live-hex-menu-row--block">
-              <button
-                type="button"
-                role="menuitem"
-                className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-wide"
-                onClick={() => {
-                  if (feedPaste.trim()) stashPendingFeedPaste(feedPaste)
-                  if (roomPaste.trim()) stashPendingRoomPaste(roomPaste)
-                  closeMenu()
-                  onOpenVideoLab()
-                }}
-              >
-                Open video feeds lab…
-              </button>
+              {onOpenVideoLab ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-wide"
+                  onClick={() => {
+                    if (feedPaste.trim()) stashPendingFeedPaste(feedPaste)
+                    if (roomPaste.trim()) stashPendingRoomPaste(roomPaste)
+                    closeMenu()
+                    onOpenVideoLab()
+                  }}
+                >
+                  Open video feeds lab…
+                </button>
+              ) : null}
+              {onOpenHexSnake ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-wide"
+                  onClick={() => {
+                    closeMenu()
+                    onOpenHexSnake()
+                  }}
+                >
+                  Play hex snake…
+                </button>
+              ) : null}
             </div>
           ) : null}
           <p className="ro-ingest-live-hex-menu-hint muted">

@@ -12,7 +12,7 @@ import {
 import { ffmpegCdnStreamUrlForVideoId } from '../util/ffmpegStreamUrl'
 import { useLiveHexRoom } from './liveHexRoom'
 import { RoomLinkStatusLight } from './RoomLinkStatusLight'
-import { VflBumpRail, VflFeedMosaic } from './VflFeedMosaic'
+import { VflBumpRail, VflFeedMosaic, VflShoulderChatThumbs } from './VflFeedMosaic'
 import { ROOM_LINK_STATUS_TITLE, useRoomChannelActivity } from './vflRoomLinkStatus'
 import { consumePendingFeedPaste, consumePendingRoomPaste, liveHexChannelForRoom } from './vfl-room-share'
 import { parseFeedLinkPaste, ytHexFeedKey } from './vfl-feed-paste'
@@ -35,13 +35,17 @@ import './video-feeds-lab.css'
 
 export type VideoFeedsLabProps = {
   onBack: () => void
+  onOpenHexSnake?: () => void
 }
 
 const CAMERA_FEED = '__camera__'
 const DEFAULT_FEED = '__default__'
 
 const STAGE_PX = 480
-const CAMERA_GRID = 72
+/** Default hex grid for YouTube / VWall sampling (camera uses `cameraHexRes`). */
+const FEED_HEX_RES = 72
+const CAMERA_HEX_RES_PRESETS = [36, 48, 72, 96, 128] as const
+const DEFAULT_CAMERA_HEX_RES = 72
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
 
 function formatMediaClock(seconds: number): string {
@@ -177,7 +181,7 @@ function effectiveFeedKey(feedOrder: string[], activeIdx: number, pinnedKey: str
   return at
 }
 
-export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
+export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabProps) {
   const [feedOrder, setFeedOrder] = useState<string[]>([DEFAULT_FEED])
   const [activeIdx, setActiveIdx] = useState(0)
   const [pinnedKey, setPinnedKey] = useState<string | null>(null)
@@ -186,6 +190,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   const [cameraOn, setCameraOn] = useState(false)
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user')
   const [cameraFeedMode, setCameraFeedMode] = useState<HexDecodeMode>('gray')
+  const [cameraHexRes, setCameraHexRes] = useState(DEFAULT_CAMERA_HEX_RES)
   const [cameraErr, setCameraErr] = useState<string | null>(null)
   const [cameraMenuOpen, setCameraMenuOpen] = useState(false)
   const [roomMenuOpen, setRoomMenuOpen] = useState(false)
@@ -551,8 +556,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     const v = videoRef.current
     const cap = capRef.current
     if (!v || !cap) return
-    cap.width = CAMERA_GRID
-    cap.height = CAMERA_GRID
+    cap.width = cameraHexRes
+    cap.height = cameraHexRes
     const ctx = cap.getContext('2d', { willReadFrequently: true })
     if (!ctx) return
     const channelName = liveHexChannelForRoom(roomId)
@@ -567,14 +572,14 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     const tick = () => {
       if (stopped) return
       if (v.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        ctx.drawImage(v, 0, 0, CAMERA_GRID, CAMERA_GRID)
+        ctx.drawImage(v, 0, 0, cameraHexRes, cameraHexRes)
         try {
-          const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
+          const id = ctx.getImageData(0, 0, cameraHexRes, cameraHexRes)
           const hex = luminanceHexFromImageData(id)
           const broadcastFrame: HexFrameMsg = {
             type: 'hexframe',
             hex,
-            res: CAMERA_GRID,
+            res: cameraHexRes,
             mode: cameraFeedMode,
             feedKey: camFeedKey,
             t: performance.now(),
@@ -594,7 +599,7 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       cancelAnimationFrame(camRaf.current)
       ch.close()
     }
-  }, [cameraOn, cameraFeedMode, isInRoom, peerId, publishHexToRoom, roomId])
+  }, [cameraOn, cameraFeedMode, cameraHexRes, isInRoom, peerId, publishHexToRoom, roomId])
 
   useEffect(() => {
     const v = ytVideoRef.current
@@ -752,8 +757,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     const v = ytVideoRef.current
     const cap = ytCapRef.current
     if (!v || !cap) return
-    cap.width = CAMERA_GRID
-    cap.height = CAMERA_GRID
+    cap.width = FEED_HEX_RES
+    cap.height = FEED_HEX_RES
     const ctx = cap.getContext('2d', { willReadFrequently: true })
     if (!ctx) return
     let ch: BroadcastChannel
@@ -767,14 +772,14 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
     const tick = () => {
       if (stopped) return
       if (v.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        ctx.drawImage(v, 0, 0, CAMERA_GRID, CAMERA_GRID)
+        ctx.drawImage(v, 0, 0, FEED_HEX_RES, FEED_HEX_RES)
         try {
-          const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
+          const id = ctx.getImageData(0, 0, FEED_HEX_RES, FEED_HEX_RES)
           const hex = luminanceHexFromImageData(id)
           const frame: HexFrameMsg = {
             type: 'hexframe',
             hex,
-            res: CAMERA_GRID,
+            res: FEED_HEX_RES,
             mode: 'gray',
             feedKey: fk,
             t: performance.now(),
@@ -883,6 +888,19 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   }
 
   const chips = useMemo(() => feedOrder, [feedOrder])
+
+  const chatThumbKeys = useMemo(() => {
+    const prefer = feedOrder.filter((k) => k !== DEFAULT_FEED)
+    return prefer.length > 0 ? prefer : feedOrder
+  }, [feedOrder])
+
+  const focusChatThumb = useCallback(
+    (feedKey: string) => {
+      const idx = feedOrder.indexOf(feedKey)
+      if (idx >= 0) setActiveIdx(idx)
+    },
+    [feedOrder],
+  )
 
   const ytSeekable =
     ytFeedId != null && ytUiDur > 0.25 && Number.isFinite(ytUiDur)
@@ -1060,8 +1078,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
   useEffect(() => {
     if (vwallTiles.length === 0) return
     const cap = document.createElement('canvas')
-    cap.width = CAMERA_GRID
-    cap.height = CAMERA_GRID
+    cap.width = FEED_HEX_RES
+    cap.height = FEED_HEX_RES
     const ctx = cap.getContext('2d', { willReadFrequently: true })
     if (!ctx) return
     let ch: BroadcastChannel
@@ -1074,14 +1092,14 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       for (const t of vwallTiles) {
         const img = vwallImagesRef.current.get(t.feedKey)
         if (!img?.complete || img.naturalWidth < 1) continue
-        ctx.drawImage(img, 0, 0, CAMERA_GRID, CAMERA_GRID)
+        ctx.drawImage(img, 0, 0, FEED_HEX_RES, FEED_HEX_RES)
         try {
-          const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
+          const id = ctx.getImageData(0, 0, FEED_HEX_RES, FEED_HEX_RES)
           const hex = luminanceHexFromImageData(id)
           const frame: HexFrameMsg = {
             type: 'hexframe',
             hex,
-            res: CAMERA_GRID,
+            res: FEED_HEX_RES,
             mode: 'gray',
             feedKey: t.feedKey,
             t: performance.now(),
@@ -1440,173 +1458,6 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
           <div className="vfl-header-intro">
             <h1 className="vfl-title">Video feeds lab</h1>
           </div>
-          <p className="vfl-lead">
-            An interactive wall of live video feeds — hex tiles on the rail, one feed on the main stage. Channel{' '}
-            <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>, carousel + pin,
-            and built-in <strong>ordered dither</strong>, <strong>halftone</strong>, and <strong>ASCII-density</strong>{' '}
-            passes (CPU canvas — same spirit as tools like{' '}
-            <a href="https://efecto.app/fx" target="_blank" rel="noreferrer">
-              Efecto
-            </a>
-            ,{' '}
-            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
-              DITHR
-            </a>
-            ). Optional <strong>depth stack</strong> layers roto-style falloff, a thermal plane that sweeps and
-            pulls forward in z, then dither weighted toward edges so dots read closest to the glass. Move the
-            mouse on the <strong>stage</strong> for key light; trail tiles use parallax depth.
-          </p>
-          <div className="vfl-credits">
-            <span>Inspiration</span>
-            <a href="https://efecto.app/fx?v=1&in=media&media=%252Fassets%252Fclose-up-of-young-woman-with-glasses.mp4&mpx=0&mpy=0&ms=1&ss=0" target="_blank" rel="noreferrer">
-              Efecto FX
-            </a>
-            <a
-              href="https://tympanus.net/codrops/2026/01/04/efecto-building-real-time-ascii-and-dithering-effects-with-webgl-shaders/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Codrops · Efecto
-            </a>
-            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
-              DITHR
-            </a>
-            <a
-              href="https://www.figma.com/community/file/1530841599105376021/razis-3d-ascii-dither-lab"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Figma · ASCII dither lab
-            </a>
-            <a href="https://gmunk.com/Information" target="_blank" rel="noreferrer">
-              GMUNK · Information
-            </a>
-          </div>
-          <section
-            className="vfl-panel vfl-header-video-bar"
-            aria-label="YouTube stream playback for hex sampling"
-          >
-            <div className="vfl-header-video-bar-inner">
-              <h2 className="vfl-panel-title vfl-header-video-title">Video</h2>
-              <div className="vfl-video-toolbar" role="toolbar" aria-label="Stream playback">
-                <button
-                  type="button"
-                  className="ro-btn ro-btn-ghost"
-                  disabled={!ytFeedId}
-                  aria-label={ytUiPaused ? 'Play' : 'Pause'}
-                  onClick={ytTogglePlay}
-                >
-                  {ytUiPaused ? 'Play' : 'Pause'}
-                </button>
-                <button type="button" className="ro-btn ro-btn-ghost" disabled={!ytFeedId} onClick={ytRestart}>
-                  Restart
-                </button>
-                <button
-                  type="button"
-                  className="ro-btn ro-btn-ghost"
-                  disabled={!ytFeedId}
-                  aria-label="Back ten seconds"
-                  onClick={() => ytSeekRel(-10)}
-                >
-                  −10s
-                </button>
-                <button
-                  type="button"
-                  className="ro-btn ro-btn-ghost"
-                  disabled={!ytFeedId}
-                  aria-label="Forward ten seconds"
-                  onClick={() => ytSeekRel(10)}
-                >
-                  +10s
-                </button>
-                <button type="button" className="ro-btn ro-btn-ghost" disabled={!pipSupported || !ytFeedId} onClick={ytTogglePip}>
-                  PiP
-                </button>
-              </div>
-              <div className="vfl-video-seek-wrap vfl-header-video-seek">
-                <label className="vfl-media-label vfl-video-seek-label" htmlFor="vfl-seek">
-                  Seek
-                </label>
-                <input
-                  id="vfl-seek"
-                  type="range"
-                  className="vfl-video-seek"
-                  disabled={!ytSeekable}
-                  min={0}
-                  max={Math.max(ytUiDur, 0.001)}
-                  step={Math.min(0.25, Math.max(0.05, ytUiDur / 800 || 0.05))}
-                  value={ytScrubDisplay ?? ytUiTime}
-                  aria-valuemin={0}
-                  aria-valuemax={Math.round(ytUiDur * 1000) / 1000}
-                  aria-valuenow={Math.round((ytScrubDisplay ?? ytUiTime) * 1000) / 1000}
-                  aria-valuetext={`${formatMediaClock(ytScrubDisplay ?? ytUiTime)} of ${formatMediaClock(ytUiDur)}`}
-                  onPointerDown={() => {
-                    ytScrubbingRef.current = true
-                  }}
-                  onChange={(e) => setYtScrubDisplay(Number(e.target.value))}
-                />
-                <span className="vfl-video-time muted" aria-live="polite">
-                  {formatMediaClock(ytScrubDisplay ?? ytUiTime)} /{' '}
-                  {ytSeekable ? formatMediaClock(ytUiDur) : ytFeedId ? '…' : '—'}
-                </span>
-              </div>
-              <div className="vfl-media-row vfl-media-row--rate vfl-header-video-rate">
-                <label className="vfl-media-label" htmlFor="vfl-rate">
-                  Speed
-                </label>
-                <select
-                  id="vfl-rate"
-                  className="vfl-video-rate-select"
-                  disabled={!ytFeedId}
-                  value={ytRate}
-                  onChange={(e) => setYtRate(Number(e.target.value))}
-                >
-                  {PLAYBACK_RATES.map((r) => (
-                    <option key={r} value={r}>
-                      {r === 1 ? '1×' : `${r}×`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <label className="vfl-check vfl-header-video-check">
-                <input
-                  type="checkbox"
-                  checked={ytLoop}
-                  disabled={!ytFeedId}
-                  onChange={(e) => setYtLoop(e.target.checked)}
-                />
-                Loop
-              </label>
-              <label className="vfl-check vfl-header-video-check">
-                <input
-                  type="checkbox"
-                  checked={showYtPreview}
-                  disabled={!ytFeedId}
-                  onChange={(e) => setShowYtPreview(e.target.checked)}
-                />
-                Preview
-              </label>
-              <video
-                ref={ytVideoRef}
-                className={showYtPreview ? 'vfl-source-preview vfl-header-video-preview' : 'vfl-hidden-video'}
-                playsInline
-                muted={!streamAudioOn}
-                preload="auto"
-                aria-label={showYtPreview ? 'Mirror stream preview' : undefined}
-              />
-            </div>
-            <p className="vfl-header-video-hint muted">
-              Mirror element for hex sampling{ytFeedId ? (
-                <>
-                  {' '}
-                  — <code className="ro-drawer-code">{ytHexFeedKey(ytFeedId)}</code>
-                </>
-              ) : (
-                ' — add a YouTube feed in Add feeds'
-              )}
-              .
-            </p>
-          </section>
           <div className="vfl-header-kicker-effects">
             <p className="ro-kicker">Overview</p>
             <div className="vfl-header-camera-wrap">
@@ -1704,6 +1555,26 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                           {look.label}
                         </button>
                       ))}
+                    </div>
+                    <div className="vfl-camera-menu-res" role="group" aria-label="Hex capture resolution">
+                      <p className="vfl-cam-section-label">Resolution</p>
+                      <div className="vfl-cam-res-presets">
+                        {CAMERA_HEX_RES_PRESETS.map((res) => (
+                          <button
+                            key={res}
+                            type="button"
+                            role="menuitem"
+                            className={`ro-btn ro-btn-ghost ro-ingest-live-hex-menu-action${cameraHexRes === res ? ' is-active' : ''}`}
+                            aria-pressed={cameraHexRes === res}
+                            onClick={() => setCameraHexRes(res)}
+                          >
+                            {res}×{res}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="vfl-cam-res-hint muted">
+                        {cameraHexRes * cameraHexRes} cells · channel limit 512×512
+                      </p>
                     </div>
                     <div
                       className="vfl-camera-menu-controls"
@@ -2194,6 +2065,11 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                 VWall
               </button>
             </div>
+            {onOpenHexSnake ? (
+              <button type="button" className="ro-btn ro-btn-ghost ro-ingest-live-hex-menu-summary" onClick={onOpenHexSnake}>
+                Snake
+              </button>
+            ) : null}
             <section className="vfl-panel vfl-stage-effects vfl-header-effects" aria-label="Effects preset">
               <div className="vfl-effects-row">
                   <h2 className="vfl-panel-title">Effects</h2>
@@ -2219,6 +2095,173 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
                 </div>
             </section>
           </div>
+          <p className="vfl-lead">
+            An interactive wall of live video feeds — hex tiles on the rail, one feed on the main stage. Channel{' '}
+            <code className="ro-drawer-code">{liveHexChannelForRoom(roomId)}</code>, carousel + pin,
+            and built-in <strong>ordered dither</strong>, <strong>halftone</strong>, and <strong>ASCII-density</strong>{' '}
+            passes (CPU canvas — same spirit as tools like{' '}
+            <a href="https://efecto.app/fx" target="_blank" rel="noreferrer">
+              Efecto
+            </a>
+            ,{' '}
+            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
+              DITHR
+            </a>
+            ). Optional <strong>depth stack</strong> layers roto-style falloff, a thermal plane that sweeps and
+            pulls forward in z, then dither weighted toward edges so dots read closest to the glass. Move the
+            mouse on the <strong>stage</strong> for key light; trail tiles use parallax depth.
+          </p>
+          <div className="vfl-credits">
+            <span>Inspiration</span>
+            <a href="https://efecto.app/fx?v=1&in=media&media=%252Fassets%252Fclose-up-of-young-woman-with-glasses.mp4&mpx=0&mpy=0&ms=1&ss=0" target="_blank" rel="noreferrer">
+              Efecto FX
+            </a>
+            <a
+              href="https://tympanus.net/codrops/2026/01/04/efecto-building-real-time-ascii-and-dithering-effects-with-webgl-shaders/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Codrops · Efecto
+            </a>
+            <a href="https://antlii.work/DITHR-Tool" target="_blank" rel="noreferrer">
+              DITHR
+            </a>
+            <a
+              href="https://www.figma.com/community/file/1530841599105376021/razis-3d-ascii-dither-lab"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Figma · ASCII dither lab
+            </a>
+            <a href="https://gmunk.com/Information" target="_blank" rel="noreferrer">
+              GMUNK · Information
+            </a>
+          </div>
+          <section
+            className="vfl-panel vfl-header-video-bar"
+            aria-label="YouTube stream playback for hex sampling"
+          >
+            <div className="vfl-header-video-bar-inner">
+              <h2 className="vfl-panel-title vfl-header-video-title">Video</h2>
+              <div className="vfl-video-toolbar" role="toolbar" aria-label="Stream playback">
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost"
+                  disabled={!ytFeedId}
+                  aria-label={ytUiPaused ? 'Play' : 'Pause'}
+                  onClick={ytTogglePlay}
+                >
+                  {ytUiPaused ? 'Play' : 'Pause'}
+                </button>
+                <button type="button" className="ro-btn ro-btn-ghost" disabled={!ytFeedId} onClick={ytRestart}>
+                  Restart
+                </button>
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost"
+                  disabled={!ytFeedId}
+                  aria-label="Back ten seconds"
+                  onClick={() => ytSeekRel(-10)}
+                >
+                  −10s
+                </button>
+                <button
+                  type="button"
+                  className="ro-btn ro-btn-ghost"
+                  disabled={!ytFeedId}
+                  aria-label="Forward ten seconds"
+                  onClick={() => ytSeekRel(10)}
+                >
+                  +10s
+                </button>
+                <button type="button" className="ro-btn ro-btn-ghost" disabled={!pipSupported || !ytFeedId} onClick={ytTogglePip}>
+                  PiP
+                </button>
+              </div>
+              <div className="vfl-video-seek-wrap vfl-header-video-seek">
+                <label className="vfl-media-label vfl-video-seek-label" htmlFor="vfl-seek">
+                  Seek
+                </label>
+                <input
+                  id="vfl-seek"
+                  type="range"
+                  className="vfl-video-seek"
+                  disabled={!ytSeekable}
+                  min={0}
+                  max={Math.max(ytUiDur, 0.001)}
+                  step={Math.min(0.25, Math.max(0.05, ytUiDur / 800 || 0.05))}
+                  value={ytScrubDisplay ?? ytUiTime}
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(ytUiDur * 1000) / 1000}
+                  aria-valuenow={Math.round((ytScrubDisplay ?? ytUiTime) * 1000) / 1000}
+                  aria-valuetext={`${formatMediaClock(ytScrubDisplay ?? ytUiTime)} of ${formatMediaClock(ytUiDur)}`}
+                  onPointerDown={() => {
+                    ytScrubbingRef.current = true
+                  }}
+                  onChange={(e) => setYtScrubDisplay(Number(e.target.value))}
+                />
+                <span className="vfl-video-time muted" aria-live="polite">
+                  {formatMediaClock(ytScrubDisplay ?? ytUiTime)} /{' '}
+                  {ytSeekable ? formatMediaClock(ytUiDur) : ytFeedId ? '…' : '—'}
+                </span>
+              </div>
+              <div className="vfl-media-row vfl-media-row--rate vfl-header-video-rate">
+                <label className="vfl-media-label" htmlFor="vfl-rate">
+                  Speed
+                </label>
+                <select
+                  id="vfl-rate"
+                  className="vfl-video-rate-select"
+                  disabled={!ytFeedId}
+                  value={ytRate}
+                  onChange={(e) => setYtRate(Number(e.target.value))}
+                >
+                  {PLAYBACK_RATES.map((r) => (
+                    <option key={r} value={r}>
+                      {r === 1 ? '1×' : `${r}×`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label className="vfl-check vfl-header-video-check">
+                <input
+                  type="checkbox"
+                  checked={ytLoop}
+                  disabled={!ytFeedId}
+                  onChange={(e) => setYtLoop(e.target.checked)}
+                />
+                Loop
+              </label>
+              <label className="vfl-check vfl-header-video-check">
+                <input
+                  type="checkbox"
+                  checked={showYtPreview}
+                  disabled={!ytFeedId}
+                  onChange={(e) => setShowYtPreview(e.target.checked)}
+                />
+                Preview
+              </label>
+              <video
+                ref={ytVideoRef}
+                className={showYtPreview ? 'vfl-source-preview vfl-header-video-preview' : 'vfl-hidden-video'}
+                playsInline
+                muted={!streamAudioOn}
+                preload="auto"
+                aria-label={showYtPreview ? 'Mirror stream preview' : undefined}
+              />
+            </div>
+            <p className="vfl-header-video-hint muted">
+              Mirror element for hex sampling{ytFeedId ? (
+                <>
+                  {' '}
+                  — <code className="ro-drawer-code">{ytHexFeedKey(ytFeedId)}</code>
+                </>
+              ) : (
+                ' — add a YouTube feed in Add feeds'
+              )}
+              .
+            </p>
+          </section>
           <section
             className={`vfl-panel vfl-feeds-hub${feedsHubOpen ? '' : ' vfl-feeds-hub--collapsed'}`}
             aria-label="Add and share video feeds for the wall"
@@ -2449,6 +2492,17 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         >
           VWall
         </button>
+        {onOpenHexSnake ? (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={false}
+            className="ro-btn ro-btn-ghost"
+            onClick={onOpenHexSnake}
+          >
+            Snake
+          </button>
+        ) : null}
         <span className="vfl-lab-view-meta muted">
           {feedOrder.length} feed{feedOrder.length === 1 ? '' : 's'} · mosaic shows latest hex per source
         </span>
@@ -2458,6 +2512,14 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
         <aside className="vfl-shoulder-column" aria-label="Room chat sidebar">
           <section className="vfl-panel vfl-shoulder-chat" aria-label="Room chat">
             <h2 className="vfl-panel-title">Room chat</h2>
+            <VflShoulderChatThumbs
+              framesRef={framesRef}
+              feedKeys={chatThumbKeys}
+              thumbSeq={feedThumbSeq}
+              activeFeedKey={displayKey}
+              offThumbRef={bumpOffRef}
+              onSelectFeed={focusChatThumb}
+            />
             <div className="vfl-chat-log" role="log" aria-live="polite" aria-relevant="additions">
               {!isInRoom ? (
                 <p className="muted vfl-chat-empty">Join or create a room (header Room) to chat on the same link.</p>
@@ -2666,8 +2728,8 @@ export default function VideoFeedsLab({ onBack }: VideoFeedsLabProps) {
       </div>
 
       <video ref={videoRef} className="vfl-hidden-video" playsInline muted autoPlay />
-      <canvas ref={capRef} className="vfl-hidden-cap" width={CAMERA_GRID} height={CAMERA_GRID} aria-hidden />
-      <canvas ref={ytCapRef} className="vfl-hidden-cap" width={CAMERA_GRID} height={CAMERA_GRID} aria-hidden />
+      <canvas ref={capRef} className="vfl-hidden-cap" width={cameraHexRes} height={cameraHexRes} aria-hidden />
+      <canvas ref={ytCapRef} className="vfl-hidden-cap" width={FEED_HEX_RES} height={FEED_HEX_RES} aria-hidden />
     </div>
   )
 }

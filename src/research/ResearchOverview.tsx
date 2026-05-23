@@ -580,6 +580,8 @@ export type ResearchOverviewProps = {
   onOpenSession?: () => void
   /** Footer + hero live-hex menu: full-page video / hex feeds playground (optional). */
   onOpenVideoLab?: () => void
+  /** Footer + hero live-hex menu: hex snake game with video-frame trail (optional). */
+  onOpenHexSnake?: () => void
 } & ResearchOverviewCorpusHandlers
 
 const SEED_DEBOUNCE_MS = 900
@@ -831,6 +833,7 @@ export default function ResearchOverview({
   onOpenSketch,
   onOpenSession,
   onOpenVideoLab,
+  onOpenHexSnake,
   onTranscriptIngest,
   onCorpusSearch,
 }: ResearchOverviewProps) {
@@ -2948,7 +2951,7 @@ export default function ResearchOverview({
             </div>
           </div>
           <div className="ro-ingest-stack">
-            <LiveHexIngestThumbnails onOpenVideoLab={onOpenVideoLab} />
+            <LiveHexIngestThumbnails onOpenVideoLab={onOpenVideoLab} onOpenHexSnake={onOpenHexSnake} />
             <div className="ro-ingest-field">
               <input
                 type="text"
@@ -3933,7 +3936,7 @@ export default function ResearchOverview({
         </div>
       </dialog>
 
-      {onOpenSummary || onOpenPresentation || onOpenSketch || onOpenSession || onOpenVideoLab ? (
+      {onOpenSummary || onOpenPresentation || onOpenSketch || onOpenSession || onOpenVideoLab || onOpenHexSnake ? (
         <footer className="ro-app-footer">
           <div
             className="ro-app-footer-status"
@@ -4039,6 +4042,16 @@ export default function ResearchOverview({
             {onOpenVideoLab ? (
               <button type="button" className="ro-app-footer-link" onClick={onOpenVideoLab}>
                 Video lab
+              </button>
+            ) : null}
+            {onOpenVideoLab && onOpenHexSnake ? (
+              <span className="ro-app-footer-sep" aria-hidden>
+                ·
+              </span>
+            ) : null}
+            {onOpenHexSnake ? (
+              <button type="button" className="ro-app-footer-link" onClick={onOpenHexSnake}>
+                Hex snake
               </button>
             ) : null}
           </div>

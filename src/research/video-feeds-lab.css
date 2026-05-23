@@ -245,10 +245,32 @@
   opacity: 0.75;
 }
 
+.vfl-camera-menu-res {
+  margin-top: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vfl-cam-res-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.vfl-cam-res-presets .ro-ingest-live-hex-menu-action {
+  width: 100%;
+  min-width: 0;
+}
+
+.vfl-cam-res-hint {
+  margin: 4px 0 0;
+  font-size: 0.58rem;
+  line-height: 1.35;
+}
+
 .vfl-camera-menu-controls {
-  margin-top: 2px;
+  margin-top: 0;
   padding-top: 5px;
-  border-top: 1px solid var(--border);
 }
 
 .vfl-cam-section-label {
@@ -716,6 +738,70 @@
 
 .vfl-shoulder-chat .vfl-panel-title {
   margin-bottom: 6px;
+}
+
+.vfl-chat-feed-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 0 0 8px;
+  width: 100%;
+}
+
+.vfl-chat-feed-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  cursor: pointer;
+  border-radius: 2px;
+  overflow: hidden;
+  aspect-ratio: 1;
+}
+
+.vfl-chat-feed-slot--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  background: color-mix(in srgb, var(--code-bg) 88%, transparent);
+}
+
+.vfl-chat-feed-slot.is-active {
+  border-color: var(--ro-accent);
+  box-shadow: 0 0 0 1px var(--ro-accent);
+}
+
+.vfl-chat-feed-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.vfl-chat-feed-label {
+  display: block;
+  padding: 2px 4px 3px;
+  font-size: 0.52rem;
+  font-family: var(--ro-font-mono);
+  line-height: 1.2;
+  color: var(--ro-muted);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border-top: 1px solid var(--border);
+}
+
+.vfl-chat-feed-placeholder {
+  font-size: 0.65rem;
 }
 
 .vfl-shoulder-chat .vfl-chat-log {
