@@ -1,6 +1,6 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, RefObject } from 'react'
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { drawHexFrame, type HexFrameMsg } from './liveHexCodec'
+import { drawHexFrame, hexFramePack, type HexFrameMsg } from './liveHexCodec'
 
 const DEFAULT_FEED = '__default__'
 const RAIL_COLS = 4
@@ -94,12 +94,12 @@ export function VflFeedMosaic({
       }
       const res = Math.floor(msg.res)
       const hex = Uint8Array.from(msg.hex)
-      if (hex.length !== res * res) {
+      const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
+      if (!hexFramePack(hex.length, res)) {
         dctx.fillStyle = emptyFill
         dctx.fillRect(0, 0, thumbPx, thumbPx)
         return
       }
-      const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
       drawHexFrame(dest, off, hex, res, mode, thumbPx)
     }
 
@@ -271,12 +271,12 @@ export function VflShoulderChatThumbs({
       }
       const res = Math.floor(msg.res)
       const hex = Uint8Array.from(msg.hex)
-      if (hex.length !== res * res) {
+      const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
+      if (!hexFramePack(hex.length, res)) {
         dctx.fillStyle = emptyFill
         dctx.fillRect(0, 0, CHAT_THUMB_PX, CHAT_THUMB_PX)
         return
       }
-      const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
       drawHexFrame(dest, off, hex, res, mode, CHAT_THUMB_PX)
     }
 

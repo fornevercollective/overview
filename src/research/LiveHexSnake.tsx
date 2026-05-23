@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   drawHexFrame,
   HEX_CAMERA_LOOKS,
+  hexFramePack,
+  hexFromImageData,
   isHexFrameMsg,
-  luminanceHexFromImageData,
   type HexDecodeMode,
   type HexFrameMsg,
   LIVE_HEX_DOCUMENT_CHANNEL,
@@ -88,7 +89,7 @@ export default function LiveHexSnake({ onBack, onOpenVideoLab }: LiveHexSnakePro
   const pushTrail = useCallback((msg: HexFrameMsg) => {
     const res = Math.floor(msg.res)
     const hex = Uint8Array.from(msg.hex)
-    if (hex.length !== res * res) return
+    if (!hexFramePack(hex.length, res)) return
     const buf = trailRef.current
     buf.push({ hex: Array.from(hex), res, mode: typeof msg.mode === 'string' ? msg.mode : 'gray' })
     if (buf.length > MAX_TRAIL) buf.splice(0, buf.length - MAX_TRAIL)
@@ -184,7 +185,7 @@ export default function LiveHexSnake({ onBack, onOpenVideoLab }: LiveHexSnakePro
             ctx.drawImage(v, 0, 0, CAMERA_GRID, CAMERA_GRID)
             try {
               const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
-              const hex = luminanceHexFromImageData(id)
+              const hex = hexFromImageData(id, look)
               const now = performance.now()
               if (now - lastFrameAt.current >= MIN_FRAME_MS) {
                 lastFrameAt.current = now

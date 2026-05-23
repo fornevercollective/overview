@@ -4,7 +4,10 @@ import {
   isHexFrameMsg,
   drawHexFrame,
   HEX_CAMERA_LOOKS,
-  luminanceHexFromImageData,
+  HEX_FRAME_RES_MAX,
+  HEX_FRAME_RES_MIN,
+  hexFramePack,
+  hexFromImageData,
   normalizeFeedKey,
   shiftCanvases,
   type HexDecodeMode,
@@ -126,9 +129,9 @@ export default function LiveHexIngestThumbnails({
 
   const drawStoredFrame = useCallback((msg: HexFrameMsg) => {
     const res = Math.floor(msg.res)
-    if (res < 8 || res > 512) return
+    if (res < HEX_FRAME_RES_MIN || res > HEX_FRAME_RES_MAX) return
     const hex = Uint8Array.from(msg.hex)
-    if (hex.length !== res * res) return
+    if (!hexFramePack(hex.length, res)) return
     const mode = typeof msg.mode === 'string' ? msg.mode : 'gray'
 
     const live = liveRef.current
@@ -147,9 +150,9 @@ export default function LiveHexIngestThumbnails({
   const applyFrame = useCallback(
     (msg: HexFrameMsg) => {
       const res = Math.floor(msg.res)
-      if (res < 8 || res > 512) return
+      if (res < HEX_FRAME_RES_MIN || res > HEX_FRAME_RES_MAX) return
       const hex = Uint8Array.from(msg.hex)
-      if (hex.length !== res * res) return
+      if (!hexFramePack(hex.length, res)) return
       const fk = normalizeFeedKey(msg.feedKey)
       const now = performance.now()
       if (now - lastFrameAt.current < MIN_FRAME_INTERVAL_MS) return
@@ -425,7 +428,7 @@ export default function LiveHexIngestThumbnails({
         ctx.drawImage(v, 0, 0, CAMERA_GRID, CAMERA_GRID)
         try {
           const id = ctx.getImageData(0, 0, CAMERA_GRID, CAMERA_GRID)
-          const hex = luminanceHexFromImageData(id)
+          const hex = hexFromImageData(id, cameraHexMode)
           applyFrame({
             type: 'hexframe',
             hex,

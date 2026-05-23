@@ -4,6 +4,10 @@ import './research.css'
 import {
   drawHexFrame,
   HEX_CAMERA_LOOKS,
+  hexFramePack,
+  hexFromImageData,
+  HEX_FRAME_RES_MAX,
+  HEX_FRAME_RES_MIN,
   luminanceHexFromImageData,
   normalizeFeedKey,
   type HexDecodeMode,
@@ -44,7 +48,7 @@ const DEFAULT_FEED = '__default__'
 const STAGE_PX = 480
 /** Default hex grid for YouTube / VWall sampling (camera uses `cameraHexRes`). */
 const FEED_HEX_RES = 72
-const CAMERA_HEX_RES_PRESETS = [36, 48, 72, 96, 128] as const
+const CAMERA_HEX_RES_PRESETS = [16, 24, 36, 48, 72, 96, 128, 192, 256, 384, 512] as const
 const DEFAULT_CAMERA_HEX_RES = 72
 const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const
 
@@ -369,7 +373,10 @@ export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabP
     }
     const res = Math.floor(msg.res)
     const hex = Uint8Array.from(msg.hex)
-    if (hex.length !== res * res) return
+    const pack = hexFramePack(hex.length, res)
+    if (!pack) return
+    const drawMode =
+      pack === 'rgb' ? 'rgb' : eff === CAMERA_FEED ? cameraFeedMode : variation.decodeMode
     let off = offHexRef.current
     if (!off) {
       off = document.createElement('canvas')
@@ -380,7 +387,7 @@ export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabP
       off,
       hex,
       res,
-      eff === CAMERA_FEED ? cameraFeedMode : variation.decodeMode,
+      drawMode,
       STAGE_PX,
     )
     postProcessCanvas(ctx, STAGE_PX, STAGE_PX, variation.invert, variation.scanlines)
@@ -409,9 +416,9 @@ export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabP
   const ingest = useCallback(
     (msg: HexFrameMsg) => {
       const res = Math.floor(msg.res)
-      if (res < 8 || res > 512) return
+      if (res < HEX_FRAME_RES_MIN || res > HEX_FRAME_RES_MAX) return
       const hex = Uint8Array.from(msg.hex)
-      if (hex.length !== res * res) return
+      if (!hexFramePack(hex.length, res)) return
       const fk = normalizeFeedKey(msg.feedKey)
       framesRef.current[fk] = {
         type: 'hexframe',
@@ -575,7 +582,7 @@ export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabP
         ctx.drawImage(v, 0, 0, cameraHexRes, cameraHexRes)
         try {
           const id = ctx.getImageData(0, 0, cameraHexRes, cameraHexRes)
-          const hex = luminanceHexFromImageData(id)
+          const hex = hexFromImageData(id, cameraFeedMode)
           const broadcastFrame: HexFrameMsg = {
             type: 'hexframe',
             hex,
@@ -1573,7 +1580,9 @@ export default function VideoFeedsLab({ onBack, onOpenHexSnake }: VideoFeedsLabP
                         ))}
                       </div>
                       <p className="vfl-cam-res-hint muted">
-                        {cameraHexRes * cameraHexRes} cells · channel limit 512×512
+                        {cameraHexRes * cameraHexRes} cells
+                        {cameraFeedMode === 'rgb' ? ` · ${cameraHexRes * cameraHexRes * 3} bytes RGB` : ''} ·{' '}
+                        {HEX_FRAME_RES_MIN}–{HEX_FRAME_RES_MAX}px
                       </p>
                     </div>
                     <div

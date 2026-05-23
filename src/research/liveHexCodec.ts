@@ -5,6 +5,10 @@
 
 export const LIVE_HEX_DOCUMENT_CHANNEL = 'overview-live-hex'
 
+/** Inclusive bounds for `hexframe.res` (side length in cells). */
+export const HEX_FRAME_RES_MIN = 16
+export const HEX_FRAME_RES_MAX = 512
+
 /** Decode modes supported by `thermalRgb` / `drawHexFrame`. */
 export type HexDecodeMode = 'gray' | 'color' | 'rgb' | 'fax' | 'signal'
 
@@ -76,9 +80,6 @@ export function thermalRgb(val: number, mode: string): [number, number, number] 
     const hue = (1 - n) * 200
     return hslToRgb(hue / 360, 0.85, (20 + n * 50) / 100)
   }
-  if (mode === 'rgb') {
-    return [v, v, v]
-  }
   if (mode === 'gray') {
     const g = Math.floor(n * 220)
     return [g, g, g]
@@ -88,6 +89,14 @@ export function thermalRgb(val: number, mode: string): [number, number, number] 
   }
   const g = Math.floor(n * 200)
   return [0, g, Math.floor(g * 0.3)]
+}
+
+/** `mono` = one luma byte per cell; `rgb` = three bytes (R,G,B) per cell. */
+export function hexFramePack(hexLength: number, res: number): 'mono' | 'rgb' | null {
+  const cells = res * res
+  if (hexLength === cells) return 'mono'
+  if (hexLength === cells * 3) return 'rgb'
+  return null
 }
 
 export function drawHexFrame(
@@ -101,14 +110,27 @@ export function drawHexFrame(
   const dctx = dest.getContext('2d')
   const octx = off.getContext('2d')
   if (!dctx || !octx) return
+  const pack = hexFramePack(hex.length, res)
+  if (!pack) return
   if (off.width !== res || off.height !== res) {
     off.width = res
     off.height = res
   }
   const id = octx.createImageData(res, res)
   const { data } = id
-  for (let i = 0, p = 0; i < res * res; i++, p += 4) {
-    const [r, g, b] = thermalRgb(hex[i] ?? 0, mode)
+  const cells = res * res
+  for (let i = 0, p = 0; i < cells; i++, p += 4) {
+    let r: number
+    let g: number
+    let b: number
+    if (pack === 'rgb') {
+      const o = i * 3
+      r = hex[o] ?? 0
+      g = hex[o + 1] ?? 0
+      b = hex[o + 2] ?? 0
+    } else {
+      ;[r, g, b] = thermalRgb(hex[i] ?? 0, mode)
+    }
     data[p] = r
     data[p + 1] = g
     data[p + 2] = b
@@ -129,6 +151,25 @@ export function luminanceHexFromImageData(imageData: ImageData): number[] {
     hex[i] = Math.floor(0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2])
   }
   return hex
+}
+
+/** Full RGB capture for Color look (`hex.length === res² × 3`). */
+export function rgbHexFromImageData(imageData: ImageData): number[] {
+  const { data } = imageData
+  const len = imageData.width * imageData.height
+  const hex: number[] = new Array(len * 3)
+  for (let i = 0; i < len; i++) {
+    const src = i * 4
+    const dst = i * 3
+    hex[dst] = data[src]!
+    hex[dst + 1] = data[src + 1]!
+    hex[dst + 2] = data[src + 2]!
+  }
+  return hex
+}
+
+export function hexFromImageData(imageData: ImageData, mode: HexDecodeMode): number[] {
+  return mode === 'rgb' ? rgbHexFromImageData(imageData) : luminanceHexFromImageData(imageData)
 }
 
 export function shiftCanvases(
